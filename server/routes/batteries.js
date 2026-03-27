@@ -46,13 +46,13 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Update battery red line
+// Update battery red lines (full array replace)
 router.put('/:id/redline', async (req, res) => {
   try {
-    const { ammoIds, threshold } = req.body;
+    const { redLines } = req.body;
     const battery = await Battery.findOneAndUpdate(
       { id: req.params.id },
-      { redLine: { ammoIds: ammoIds || [], threshold: threshold || 0 } },
+      { redLines: redLines || [] },
       { new: true }
     );
     if (!battery) return res.status(404).json({ error: 'Battery not found' });

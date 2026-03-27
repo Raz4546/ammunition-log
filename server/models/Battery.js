@@ -12,10 +12,12 @@ const BatterySchema = new mongoose.Schema({
   callsign: { type: String, required: true },
   color:    { type: String, required: true },
   active:   { type: Boolean, default: true },
-  redLine: {
+  redLines: { type: [{
+    id:        { type: String, required: true },
+    label:     { type: String, default: "" },
     ammoIds:   { type: [String], default: [] },
-    threshold: { type: Number,   default: 0  },
-  },
+    threshold: { type: Number,  default: 0  },
+  }], default: [] },
 }, { timestamps: true });
 
 BatterySchema.statics.PALETTE = PALETTE;
