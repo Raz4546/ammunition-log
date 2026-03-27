@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const Transaction = require('../models/Transaction');
-const Ammunition = require('../models/Ammunition');
+const Ammunition  = require('../models/Ammunition');
 
-// Get all transactions with optional filtering
+// Get transactions (optionally filtered by teamId or batteryId)
 router.get('/', async (req, res) => {
   try {
-    const { batteryId, limit = 100 } = req.query;
-    let query = {};
+    const { teamId, batteryId, limit = 200 } = req.query;
+    const query = {};
+    if (teamId)    query.teamId    = teamId;
     if (batteryId) query.batteryId = batteryId;
 
     const transactions = await Transaction.find(query)
@@ -19,20 +20,19 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Create new transaction
+// Create a transaction
 router.post('/', async (req, res) => {
   try {
-    const { batteryId, ammoId, type, quantity, note, batteryName, ammoLabel } = req.body;
+    const { teamId, batteryId, ammoId, type, quantity, note, teamName, batteryName, ammoLabel } = req.body;
 
-    // Validate input
-    if (!batteryId || !ammoId || !type || !quantity || quantity <= 0) {
+    if (!teamId || !ammoId || !type || !quantity || quantity <= 0) {
       return res.status(400).json({ error: 'Invalid transaction data' });
     }
 
-    // Get current ammunition
-    let ammo = await Ammunition.findOne({ batteryId, ammoId });
+    let ammo = await Ammunition.findOne({ teamId, ammoId });
     if (!ammo) {
-      return res.status(404).json({ error: 'Ammunition not found' });
+      // Auto-create stock record at 0 if missing (handles edge cases)
+      ammo = await Ammunition.create({ teamId, ammoId, quantity: 0 });
     }
 
     const before = ammo.quantity;
@@ -49,43 +49,16 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Invalid transaction type' });
     }
 
-    // Update ammunition
     ammo.quantity = after;
     ammo.lastUpdated = Date.now();
     await ammo.save();
 
-    // Record transaction
-    const transaction = new Transaction({
-      batteryId,
-      ammoId,
-      type,
-      quantity,
-      note,
-      before,
-      after,
-      batteryName,
-      ammoLabel
+    const transaction = await Transaction.create({
+      teamId, batteryId, ammoId, type, quantity, note,
+      teamName, batteryName, ammoLabel, before, after,
     });
 
-    await transaction.save();
     res.status(201).json(transaction);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Get transaction stats
-router.get('/stats/summary', async (req, res) => {
-  try {
-    const totalTransactions = await Transaction.countDocuments();
-    const byBattery = await Transaction.aggregate([
-      { $group: { _id: '$batteryId', count: { $sum: 1 } } }
-    ]);
-    const byType = await Transaction.aggregate([
-      { $group: { _id: '$type', count: { $sum: 1 } } }
-    ]);
-
-    res.json({ totalTransactions, byBattery, byType });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

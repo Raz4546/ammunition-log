@@ -1,20 +1,19 @@
 const mongoose = require('mongoose');
 
+const PALETTE = [
+  "#e85d04","#38bdf8","#a3e635","#f472b6",
+  "#facc15","#818cf8","#34d399","#fb923c",
+  "#e879f9","#22d3ee",
+];
+
 const BatterySchema = new mongoose.Schema({
-  id: {
-    type: String,
-    required: true,
-    enum: ['A', 'B', 'C', 'D'],
-    unique: true
-  },
-  name: String,
-  callsign: String,
-  color: String,
-  lastTransaction: Date,
-  active: {
-    type: Boolean,
-    default: true
-  }
+  id:       { type: String, required: true, unique: true },
+  name:     { type: String, required: true },
+  callsign: { type: String, required: true },
+  color:    { type: String, required: true },
+  active:   { type: Boolean, default: true },
 }, { timestamps: true });
+
+BatterySchema.statics.PALETTE = PALETTE;
 
 module.exports = mongoose.model('Battery', BatterySchema);
