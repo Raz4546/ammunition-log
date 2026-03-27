@@ -18,7 +18,14 @@ mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('✓ MongoDB Connected'))
+.then(async () => {
+  console.log('✓ MongoDB Connected');
+  // Drop stale index from old schema (batteryId → teamId migration)
+  try {
+    await mongoose.connection.collection('ammunitions').dropIndex('batteryId_1_ammoId_1');
+    console.log('✓ Dropped old batteryId index');
+  } catch (_) { /* index doesn't exist — already clean */ }
+})
 .catch(err => console.error('✗ MongoDB Connection Error:', err));
 
 // Routes
