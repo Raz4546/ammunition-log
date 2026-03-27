@@ -560,10 +560,9 @@ function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batter
   const hasAmmo  = ammoTypes.length > 0;
 
   return (
-    <div style={s.screen}>
-      <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+    <div style={{ ...s.screen, display: "flex", flexDirection: "column", height: "100vh" }}>
         {/* Header */}
-        <div style={{ flex: 0, display: "flex", justifyContent: "space-between", alignItems: "center", padding: isMobile ? "12px 16px" : "16px 32px", borderBottom: "2px solid #1e293b", background: "#0f172a" }}>
+        <div style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", padding: isMobile ? "12px 16px" : "16px 32px", borderBottom: "2px solid #1e293b", background: "#0f172a" }}>
           <div style={{ display: "flex", gap: isMobile ? 10 : 16, alignItems: "center" }}>
             <div style={{ fontSize: isMobile ? 24 : 32 }}>🏛️</div>
             <div>
@@ -596,7 +595,7 @@ function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batter
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, overflow: "auto", padding: isMobile ? 12 : 28 }}>
+        <div style={{ flex: 1, overflow: "auto", minHeight: 0, padding: isMobile ? 12 : 28 }}>
 
           {activeTab === "dashboard" && (
             (!hasUnits || !hasAmmo) ? (
@@ -787,7 +786,6 @@ function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batter
             />
           )}
         </div>
-      </div>
     </div>
   );
 }
@@ -1085,10 +1083,9 @@ function TeamCommander({ team, battery, teams, batteries, selectedTeamId, setSel
   }
 
   return (
-    <div style={s.screen}>
-      <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+    <div style={{ ...s.screen, display: "flex", flexDirection: "column", height: "100vh" }}>
         {/* Header */}
-        <div style={{ flex: 0, display: "flex", justifyContent: "space-between", alignItems: "center", padding: isMobile ? "12px 16px" : "16px 28px", borderBottom: `2px solid ${battery?.color || "#1e293b"}`, background: "#0f172a" }}>
+        <div style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", padding: isMobile ? "12px 16px" : "16px 28px", borderBottom: `2px solid ${battery?.color || "#1e293b"}`, background: "#0f172a" }}>
           <div style={{ display: "flex", gap: isMobile ? 10 : 14, alignItems: "center" }}>
             <div style={{ fontSize: isMobile ? 22 : 28 }}>⚡</div>
             <div>
@@ -1133,7 +1130,7 @@ function TeamCommander({ team, battery, teams, batteries, selectedTeamId, setSel
 
         {/* Body */}
         {!hasTypes ? (
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 32, textAlign: "center", gap: 12 }}>
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 32, textAlign: "center", gap: 12 }}>
             <div style={{ fontSize: 40 }}>⚙️</div>
             <div style={{ fontSize: isMobile ? 16 : 20, fontWeight: "bold" }}>AWAITING CONFIGURATION</div>
             <div style={{ fontSize: 13, color: "#94a3b8", maxWidth: 340, lineHeight: 1.7 }}>No ammunition types defined. Contact your Battalion Commander.</div>
@@ -1143,7 +1140,6 @@ function TeamCommander({ team, battery, teams, batteries, selectedTeamId, setSel
         ) : (
           <AmmunitionTab ammoTypes={ammoTypes} stock={stock} log={log} txAmmoId={txAmmoId} setTxAmmoId={setTxAmmoId} txQty={txQty} setTxQty={setTxQty} txNote={txNote} setTxNote={setTxNote} txType={txType} setTxType={setTxType} onSubmit={onSubmit} onAdjust={onAdjust} maxPerTeam={maxPerTeam} isMobile={isMobile} accentColor={battery?.color || "#38bdf8"} />
         )}
-      </div>
 
       {flash && (
         <div style={{ ...s.flashBar, background: flash.kind === "success" ? "#4ade80" : "#ef4444", color: flash.kind === "success" ? "#000" : "#fff", bottom: isMobile ? 16 : 20, right: isMobile ? 12 : 20, left: isMobile ? 12 : "auto", textAlign: isMobile ? "center" : "left" }}>
@@ -1170,7 +1166,7 @@ function FireMissionTab({ ammoTypes, stock, log, onFireMission, maxPerTeam, isMo
   }
 
   return (
-    <div style={{ flex: 1, overflow: "auto", padding: isMobile ? 12 : 20 }}>
+    <div style={{ flex: 1, overflow: "auto", minHeight: 0, padding: isMobile ? 12 : 20 }}>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: isMobile ? 12 : 20, maxWidth: 1000 }}>
         {/* Form */}
         <div style={{ ...s.txCard, borderColor: "#ef4444", borderWidth: 2, padding: isMobile ? 16 : 20 }}>
@@ -1260,7 +1256,7 @@ function AmmunitionTab({ ammoTypes, stock, log, txAmmoId, setTxAmmoId, txQty, se
   function cancelEdit() { setEditingId(null); setEditValue(""); }
 
   return (
-    <div style={{ flex: 1, overflow: "auto", padding: isMobile ? 10 : 20, display: "flex", flexDirection: "column", gap: isMobile ? 12 : 18 }}>
+    <div style={{ flex: 1, overflow: "auto", minHeight: 0, padding: isMobile ? 10 : 20, display: "flex", flexDirection: "column", gap: isMobile ? 12 : 18 }}>
 
       {/* ── Top row: Stock table + Quick form ── */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.4fr 1fr", gap: isMobile ? 12 : 18 }}>
