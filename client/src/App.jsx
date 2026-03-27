@@ -102,6 +102,14 @@ export default function App() {
   const [log, setLog] = useState([]);
   const [selectedTeamId, setSelectedTeamId] = useState(null);
   const [bnTab, setBnTab] = useState("dashboard");
+  const [recipients, setRecipients] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('ammo_recipients') || '[]'); } catch { return []; }
+  });
+
+  function saveRecipients(recs) {
+    setRecipients(recs);
+    localStorage.setItem('ammo_recipients', JSON.stringify(recs));
+  }
   // Ammunition-tab form state
   const [txAmmoId, setTxAmmoId] = useState("");
   const [txQty, setTxQty]     = useState("");
@@ -324,10 +332,10 @@ export default function App() {
 
   // ── WhatsApp alerts ──
   async function sendWhatsAppAlert(text) {
-    const phone  = localStorage.getItem('ammo_wb_phone');
-    const apikey = localStorage.getItem('ammo_wb_apikey');
-    if (!phone || !apikey) return;
-    try { await api.post('/notify/whatsapp', { phone, apikey, text }); } catch (_) {}
+    const recs = recipients.filter(r => r.phone && r.apikey);
+    for (const r of recs) {
+      try { await api.post('/notify/whatsapp', { phone: r.phone, apikey: r.apikey, text }); } catch (_) {}
+    }
   }
 
   function checkRedLineAlerts(newStock, oldStock) {
@@ -402,6 +410,8 @@ export default function App() {
       onAddTeam={handleAddTeam}       onDeleteTeam={handleDeleteTeam}
       onAddAmmoType={handleAddAmmoType} onDeleteAmmoType={handleDeleteAmmoType}
       onSetRedLines={handleSetRedLines}
+      recipients={recipients} onSaveRecipients={saveRecipients}
+      onSendWhatsApp={sendWhatsAppAlert}
     />
   );
 
@@ -579,9 +589,9 @@ function RoleSelect({ batteries, teams, onSelectBN, onSelectTeam }) {
 }
 
 // ─── BN DASHBOARD ─────────────────────────────────────────────────────────────
-function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batteryTotals, maxPerTeam, activeTab, setActiveTab, onLogout, onAddBattery, onDeleteBattery, onAddTeam, onDeleteTeam, onAddAmmoType, onDeleteAmmoType, onSetRedLines }) {
+function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batteryTotals, maxPerTeam, activeTab, setActiveTab, onLogout, onAddBattery, onDeleteBattery, onAddTeam, onDeleteTeam, onAddAmmoType, onDeleteAmmoType, onSetRedLines, recipients, onSaveRecipients, onSendWhatsApp }) {
   const isMobile = useIsMobile();
-  const TABS = ["UNITS", "AMMO TYPES", "DASHBOARD", "BATTERIES", "SUMMARY", "TRANSACTIONS", "ANALYTICS"];
+  const TABS = ["UNITS", "AMMO TYPES", "DASHBOARD", "BATTERIES", "SUMMARY", "TRANSACTIONS", "ANALYTICS", "SETTINGS"];
 
   const barData = ammoTypes.map(a => {
     const row = { name: a.id };
@@ -807,7 +817,12 @@ function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batter
           )}
 
           {activeTab === "summary" && (
-            <SummaryTab batteries={batteries} teams={teams} ammoTypes={ammoTypes} log={log} isMobile={isMobile} />
+            <SummaryTab batteries={batteries} teams={teams} ammoTypes={ammoTypes} log={log} isMobile={isMobile}
+              recipients={recipients} onSendWhatsApp={onSendWhatsApp} />
+          )}
+
+          {activeTab === "settings" && (
+            <SettingsTab recipients={recipients} onSaveRecipients={onSaveRecipients} isMobile={isMobile} />
           )}
 
           {activeTab === "analytics" && (
@@ -1483,31 +1498,27 @@ function AmmunitionTab({ ammoTypes, stock, log, txAmmoId, setTxAmmoId, txQty, se
 }
 
 // ─── SUMMARY TAB ──────────────────────────────────────────────────────────────
-function SummaryTab({ batteries, teams, ammoTypes, log, isMobile }) {
+function SummaryTab({ batteries, teams, ammoTypes, log, isMobile, recipients, onSendWhatsApp }) {
   const now = new Date();
   const yesterday = new Date(now - 24 * 60 * 60 * 1000);
   const fmt = d => d.toISOString().slice(0, 16);
 
   const [start, setStart] = useState(fmt(yesterday));
   const [end,   setEnd]   = useState(fmt(now));
-  const [copied, setCopied]   = useState(false);
-  const [waSent, setWaSent]   = useState(false);
-  const [waError, setWaError] = useState(null);
-  const [wbPhone, setWbPhone] = useState(() => localStorage.getItem('ammo_wb_phone')  || '');
-  const [wbKey,   setWbKey]   = useState(() => localStorage.getItem('ammo_wb_apikey') || '');
-  const [showWbSettings, setShowWbSettings] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [waSent, setWaSent] = useState(false);
+  const [waErr,  setWaErr]  = useState(null);
 
-  function updateWbPhone(v) { setWbPhone(v); localStorage.setItem('ammo_wb_phone', v); }
-  function updateWbKey(v)   { setWbKey(v);   localStorage.setItem('ammo_wb_apikey', v); }
+  const activeRecipients = (recipients || []).filter(r => r.phone && r.apikey);
 
   async function handleSendWhatsApp() {
-    if (!wbPhone || !wbKey) { setShowWbSettings(true); return; }
-    setWaError(null);
+    if (!activeRecipients.length) { setWaErr('No recipients configured — go to SETTINGS tab'); return; }
+    setWaErr(null);
     try {
-      await api.post('/notify/whatsapp', { phone: wbPhone, apikey: wbKey, text: generateText() });
+      await onSendWhatsApp(generateText());
       setWaSent(true);
       setTimeout(() => setWaSent(false), 3000);
-    } catch (e) { setWaError(e.message || 'Failed to send'); }
+    } catch (e) { setWaErr(e.message || 'Failed to send'); }
   }
 
   const startMs = new Date(start).getTime();
@@ -1607,36 +1618,11 @@ function SummaryTab({ batteries, teams, ammoTypes, log, isMobile }) {
 
   return (
     <div>
-      {/* WhatsApp settings panel */}
-      <div style={{ ...s.sectionCard, marginBottom: 16, border: "1px solid #25d36620" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 12, fontWeight: "bold", color: "#25d366" }}>📱 WHATSAPP GROUP</div>
-          <button onClick={() => setShowWbSettings(p => !p)}
-            style={{ fontSize: 11, color: "#64748b", background: "none", border: "none", cursor: "pointer" }}>
-            {showWbSettings ? "▲ HIDE" : "▼ CONFIGURE"}
-          </button>
-        </div>
-        {showWbSettings && (
-          <div style={{ marginTop: 12, display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <label style={s.txLabel}>GROUP PHONE / ID</label>
-              <input placeholder="+972501234567" value={wbPhone} onChange={e => updateWbPhone(e.target.value)}
-                style={{ ...s.txInput, width: "100%", boxSizing: "border-box" }} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={s.txLabel}>CALLMEBOT API KEY</label>
-              <input placeholder="API key from CallMeBot..." value={wbKey} onChange={e => updateWbKey(e.target.value)}
-                style={{ ...s.txInput, width: "100%", boxSizing: "border-box" }} />
-            </div>
-          </div>
-        )}
-        {!showWbSettings && (
-          <div style={{ marginTop: 6, fontSize: 11, color: wbPhone && wbKey ? "#4ade80" : "#ef4444" }}>
-            {wbPhone && wbKey ? `✓ Configured — ${wbPhone}` : "Not configured — click CONFIGURE to set up"}
-          </div>
-        )}
-        {waError && <div style={{ marginTop: 8, fontSize: 11, color: "#ef4444" }}>⚠ {waError}</div>}
+      {/* Recipients status */}
+      <div style={{ marginBottom: 12, fontSize: 11, color: activeRecipients.length ? "#4ade80" : "#64748b" }}>
+        📱 {activeRecipients.length ? `${activeRecipients.length} WhatsApp recipient${activeRecipients.length !== 1 ? "s" : ""} configured` : "No WhatsApp recipients — configure in SETTINGS tab"}
       </div>
+      {waErr && <div style={{ marginBottom: 10, padding: "8px 12px", background: "#ef444415", border: "1px solid #ef444440", borderRadius: 4, fontSize: 12, color: "#ef4444" }}>⚠ {waErr}</div>}
 
       {/* Controls */}
       <div style={{ ...s.sectionCard, marginBottom: 20, display: "flex", flexDirection: isMobile ? "column" : "row", gap: 12, alignItems: isMobile ? "stretch" : "flex-end" }}>
@@ -1731,6 +1717,125 @@ function SummaryTab({ batteries, teams, ammoTypes, log, isMobile }) {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SETTINGS TAB ─────────────────────────────────────────────────────────────
+function SettingsTab({ recipients, onSaveRecipients, isMobile }) {
+  const [name,   setName]   = useState("");
+  const [phone,  setPhone]  = useState("");
+  const [apikey, setApikey] = useState("");
+  const [testing, setTesting] = useState({});
+  const [testResult, setTestResult] = useState({});
+
+  function addRecipient() {
+    if (!phone.trim() || !apikey.trim()) return;
+    const rec = { id: `r_${Date.now()}`, name: name.trim(), phone: phone.trim(), apikey: apikey.trim() };
+    onSaveRecipients([...recipients, rec]);
+    setName(""); setPhone(""); setApikey("");
+  }
+
+  function deleteRecipient(id) {
+    onSaveRecipients(recipients.filter(r => r.id !== id));
+  }
+
+  async function testRecipient(r) {
+    setTesting(p => ({ ...p, [r.id]: true }));
+    setTestResult(p => ({ ...p, [r.id]: null }));
+    try {
+      const res = await api.post('/notify/whatsapp', { phone: r.phone, apikey: r.apikey, text: '✅ ARTY AMMO TRACKER — WhatsApp test message. Connection confirmed.' });
+      setTestResult(p => ({ ...p, [r.id]: res.ok ? "ok" : "fail" }));
+    } catch (_) {
+      setTestResult(p => ({ ...p, [r.id]: "fail" }));
+    }
+    setTesting(p => ({ ...p, [r.id]: false }));
+    setTimeout(() => setTestResult(p => ({ ...p, [r.id]: null })), 4000);
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 18, fontWeight: "bold", marginBottom: 6 }}>⚙️ SETTINGS</div>
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>Manage WhatsApp notification recipients. Each person needs their own CallMeBot API key.</div>
+      </div>
+
+      {/* How-to panel */}
+      <div style={{ ...s.sectionCard, marginBottom: 24, border: "1px solid #25d36640", padding: isMobile ? 14 : 20 }}>
+        <div style={{ fontSize: 13, fontWeight: "bold", color: "#25d366", marginBottom: 10 }}>📱 HOW TO SET UP CALLMEBOT</div>
+        <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: "#94a3b8", lineHeight: 2 }}>
+          <li>Add <span style={{ color: "#fff", fontFamily: "monospace" }}>+34 644 59 73 83</span> to your WhatsApp contacts as "CallMeBot"</li>
+          <li>Send this message to that contact: <span style={{ color: "#25d366", fontFamily: "monospace" }}>I allow callmebot to send me messages</span></li>
+          <li>You will receive an API key via WhatsApp within seconds</li>
+          <li>Enter your phone number (with country code, e.g. +972501234567) and the key below</li>
+        </ol>
+        <div style={{ marginTop: 10, fontSize: 11, color: "#64748b" }}>For WhatsApp groups: add the bot to the group, send the message in the group chat, and use the group's phone/ID with the group API key.</div>
+      </div>
+
+      {/* Add recipient form */}
+      <div style={{ ...s.txCard, marginBottom: 24, border: "2px solid #25d366" }}>
+        <div style={{ fontSize: 13, fontWeight: "bold", color: "#25d366", marginBottom: 14 }}>+ ADD RECIPIENT</div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+          <div>
+            <label style={s.txLabel}>NAME (optional)</label>
+            <input style={{ ...s.txInput, width: "100%", boxSizing: "border-box" }}
+              placeholder="e.g. Maj. Cohen"
+              value={name} onChange={e => setName(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && addRecipient()} />
+          </div>
+          <div>
+            <label style={s.txLabel}>PHONE NUMBER</label>
+            <input style={{ ...s.txInput, width: "100%", boxSizing: "border-box" }}
+              placeholder="+972501234567"
+              value={phone} onChange={e => setPhone(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && addRecipient()} />
+          </div>
+          <div>
+            <label style={s.txLabel}>CALLMEBOT API KEY</label>
+            <input style={{ ...s.txInput, width: "100%", boxSizing: "border-box" }}
+              placeholder="API key..."
+              value={apikey} onChange={e => setApikey(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && addRecipient()} />
+          </div>
+        </div>
+        <button
+          onClick={addRecipient}
+          disabled={!phone.trim() || !apikey.trim()}
+          style={{ padding: "9px 24px", background: phone.trim() && apikey.trim() ? "#25d366" : "#334155", color: phone.trim() && apikey.trim() ? "#000" : "#64748b", border: "none", borderRadius: 4, fontWeight: "bold", fontSize: 13, cursor: phone.trim() && apikey.trim() ? "pointer" : "default", transition: "all 0.2s" }}
+        >+ ADD</button>
+      </div>
+
+      {/* Recipient list */}
+      {recipients.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: "#475569", fontSize: 14 }}>
+          No recipients configured yet. Add one above.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {recipients.map(r => (
+            <div key={r.id} style={{ padding: isMobile ? 14 : 18, border: "1px solid #334155", background: "#1e293b", borderRadius: 6, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ minWidth: 0 }}>
+                {r.name && <div style={{ fontSize: 13, fontWeight: "bold", color: "#e2e8f0", marginBottom: 3 }}>{r.name}</div>}
+                <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "monospace" }}>{r.phone}</div>
+                <div style={{ fontSize: 11, color: "#475569", fontFamily: "monospace" }}>{r.apikey.slice(0, 4)}{'•'.repeat(Math.max(0, r.apikey.length - 4))}</div>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                <button
+                  onClick={() => testRecipient(r)}
+                  disabled={testing[r.id]}
+                  style={{ padding: "6px 14px", background: testResult[r.id] === "ok" ? "#4ade8020" : testResult[r.id] === "fail" ? "#ef444420" : "#25d36620", color: testResult[r.id] === "ok" ? "#4ade80" : testResult[r.id] === "fail" ? "#ef4444" : "#25d366", border: `1px solid ${testResult[r.id] === "ok" ? "#4ade80" : testResult[r.id] === "fail" ? "#ef4444" : "#25d36660"}`, borderRadius: 4, cursor: "pointer", fontSize: 11, fontWeight: "bold", transition: "all 0.2s", minWidth: 70 }}
+                >
+                  {testing[r.id] ? "..." : testResult[r.id] === "ok" ? "✓ SENT" : testResult[r.id] === "fail" ? "✗ FAIL" : "📱 TEST"}
+                </button>
+                <button
+                  onClick={() => deleteRecipient(r.id)}
+                  style={{ padding: "6px 12px", background: "#ef444415", color: "#ef4444", border: "1px solid #ef444440", borderRadius: 4, cursor: "pointer", fontSize: 11, fontWeight: "bold" }}
+                >✕ DEL</button>
               </div>
             </div>
           ))}
