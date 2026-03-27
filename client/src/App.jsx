@@ -115,13 +115,35 @@ function statusLabel(pct) {
   return "RED";
 }
 
-// Return color for an ammo type based on its category
 function ammoColor(ammoType) {
   return CATEGORY_META[ammoType?.category]?.color || "#94a3b8";
 }
 
 function ammoIcon(ammoType) {
   return CATEGORY_META[ammoType?.category]?.icon || "🔹";
+}
+
+// Group fire-mission transactions (note starts with "FM:") into missions
+// entries within 30s sharing the same note are treated as one mission
+function groupFireMissions(logEntries) {
+  const fmEntries = [...logEntries]
+    .filter(e => e.note && e.note.startsWith('FM:') && e.type === 'SUB')
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  const missions = [];
+  fmEntries.forEach(entry => {
+    const name = entry.note.slice(3);
+    const entryTime = new Date(entry.timestamp).getTime();
+    const existing = missions.find(m =>
+      m.name === name && Math.abs(new Date(m.time).getTime() - entryTime) <= 30000
+    );
+    if (existing) {
+      existing.items.push(entry);
+    } else {
+      missions.push({ name, time: entry.timestamp, items: [entry] });
+    }
+  });
+  return missions.slice(0, 8);
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
@@ -176,7 +198,6 @@ export default function App() {
       setAmmoTypes(prev => [...prev, newType].sort((a, b) =>
         a.category.localeCompare(b.category) || a.label.localeCompare(b.label)
       ));
-      // Initialize stock entries for new type
       setStock(prev => {
         const next = { ...prev };
         BATTERIES.forEach(b => {
@@ -214,6 +235,7 @@ export default function App() {
     }
   }
 
+  // Single ammo transaction (used by Ammunition tab)
   async function submitTx() {
     const qty = parseInt(txQty, 10);
     if (!txAmmoId) return showFlash("NO AMMO TYPE SELECTED", "error");
@@ -244,6 +266,57 @@ export default function App() {
       showFlash(`${txType === "ADD" ? "+" : "-"}${qty} ROUNDS LOGGED`, "success");
     } catch (err) {
       showFlash(err.message || "Transaction failed", "error");
+    }
+  }
+
+  // Fire mission — batch SUB across multiple ammo types
+  async function submitFireMission(missionName, ammoQtys) {
+    const bty = selectedBattery;
+    const items = Object.entries(ammoQtys)
+      .map(([id, v]) => ({ id, qty: parseInt(v, 10) || 0 }))
+      .filter(x => x.qty > 0);
+
+    if (items.length === 0) return showFlash("ENTER AT LEAST ONE QUANTITY", "error");
+
+    // Validate all before submitting any
+    for (const { id, qty } of items) {
+      const current = stock[bty]?.[id] || 0;
+      if (qty > current) {
+        const a = ammoTypes.find(t => t.id === id);
+        return showFlash(`INSUFFICIENT ${a?.label || id}`, "error");
+      }
+    }
+
+    const noteTag = `FM:${missionName.trim() || "FIRE MISSION"}`;
+    const btyInfo = BATTERIES.find(b => b.id === bty);
+
+    try {
+      const newTransactions = [];
+      const stockUpdates = {};
+
+      for (const { id, qty } of items) {
+        const current = stock[bty]?.[id] || 0;
+        const ammoType = ammoTypes.find(a => a.id === id);
+        const tx = await submitTransaction({
+          batteryId: bty,
+          ammoId: id,
+          type: "SUB",
+          quantity: qty,
+          note: noteTag,
+          batteryName: btyInfo.name,
+          ammoLabel: ammoType?.label || id,
+        });
+        newTransactions.push(tx);
+        stockUpdates[id] = current - qty;
+      }
+
+      setStock(prev => ({ ...prev, [bty]: { ...prev[bty], ...stockUpdates } }));
+      setLog(prev => [...newTransactions.reverse(), ...prev]);
+      showFlash(`FIRE MISSION LOGGED — ${items.length} TYPE${items.length > 1 ? "S" : ""}`, "success");
+      return true;
+    } catch (err) {
+      showFlash(err.message || "Mission log failed", "error");
+      return false;
     }
   }
 
@@ -296,7 +369,9 @@ export default function App() {
       txQty={txQty} setTxQty={setTxQty}
       txNote={txNote} setTxNote={setTxNote}
       txType={txType} setTxType={setTxType}
-      onSubmit={submitTx} flash={flash}
+      onSubmit={submitTx}
+      onFireMission={submitFireMission}
+      flash={flash}
       maxPerBty={MAX_PER_BTY}
       onLogout={() => setRole(null)}
     />
@@ -356,7 +431,6 @@ const s = {
   btyDetailCard: { padding: 24, border: "2px solid", background: "#1e293b", borderRadius: 4 },
   btyDetailHeader: { paddingBottom: 16, borderBottom: "2px solid", marginBottom: 16 },
   ammoRow: { display: "flex", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #334155", fontSize: 13 },
-  ammoRowIcon: { fontSize: 18, marginRight: 12, width: 24 },
   ammoRowLabel: { flex: 1, fontWeight: "bold", color: "#cbd5e1" },
   inlineBar: { width: 80, height: 4, background: "#334155", borderRadius: 2, margin: "0 12px", flexShrink: 0 },
   btyWrap: { display: "flex", flexDirection: "column", height: "100vh" },
@@ -367,8 +441,6 @@ const s = {
   btySub: { fontSize: 11, color: "#94a3b8", letterSpacing: 1, marginTop: 2 },
   btyRight: { display: "flex", gap: 12 },
   btySwitch: { padding: "6px 12px", background: "#334155", border: "1px solid #475569", color: "#cbd5e1", borderRadius: 4, cursor: "pointer", fontSize: 11 },
-  btyBody: { flex: 1, display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 20, padding: 20, overflow: "hidden" },
-  btyLeftpanel: { display: "flex", flexDirection: "column", gap: 16, overflow: "auto", paddingRight: 12 },
   txCard: { padding: 20, border: "1px solid #334155", background: "#1e293b", borderRadius: 4 },
   txField: { marginBottom: 16 },
   txLabel: { fontSize: 12, color: "#94a3b8", marginBottom: 6, display: "block", fontWeight: "bold" },
@@ -412,7 +484,7 @@ function RoleSelect({ onSelect }) {
             <div style={{ ...s.roleCardBadge, background: "#38bdf8", color: "#0f172a" }}>BTY CDR</div>
             <div style={{ ...s.roleCardIcon, fontSize: isMobile ? 40 : 56 }}>⚡</div>
             <div style={{ ...s.roleCardName, fontSize: isMobile ? 17 : 20 }}>BATTERY COMMANDER</div>
-            <div style={{ ...s.roleCardDesc, fontSize: isMobile ? 12 : 13 }}>Log ammunition transactions for your battery — resupply, expenditures, and transfers with real-time updates to HQ.</div>
+            <div style={{ ...s.roleCardDesc, fontSize: isMobile ? 12 : 13 }}>Log fire missions and manage ammunition for your battery with real-time updates to battalion HQ.</div>
             <div style={{ ...s.roleCardEnter, color: "#38bdf8" }}>ENTER COMMAND →</div>
           </button>
         </div>
@@ -453,15 +525,7 @@ function BNDashboard({ stock, log, bnTotals, ammoTypes, maxPerBty, activeTab, se
           </div>
         </div>
 
-        <div style={{
-          ...s.tabs,
-          paddingLeft: isMobile ? 4 : 32,
-          overflowX: "auto",
-          overflowY: "hidden",
-          WebkitOverflowScrolling: "touch",
-          scrollbarWidth: "none",
-          msOverflowStyle: "none",
-        }}>
+        <div style={{ ...s.tabs, paddingLeft: isMobile ? 4 : 32, overflowX: "auto", overflowY: "hidden", WebkitOverflowScrolling: "touch", scrollbarWidth: "none", msOverflowStyle: "none" }}>
           {tabs.map(t => (
             <button key={t} style={{
               ...s.tab,
@@ -469,19 +533,14 @@ function BNDashboard({ stock, log, bnTotals, ammoTypes, maxPerBty, activeTab, se
               ...(t === "CONFIGURE" && activeTab === "configure" ? { borderBottomColor: "#a3e635", color: "#a3e635" } : {}),
               padding: isMobile ? "10px 12px" : "12px 24px",
               fontSize: isMobile ? 10 : 12,
-              whiteSpace: "nowrap",
-              flexShrink: 0,
-            }}
-              onClick={() => setActiveTab(t.toLowerCase())}>{t}</button>
+              whiteSpace: "nowrap", flexShrink: 0,
+            }} onClick={() => setActiveTab(t.toLowerCase())}>{t}</button>
           ))}
         </div>
 
         <div style={{ ...s.bnBody, padding: isMobile ? 12 : 32 }}>
-
           {activeTab === "dashboard" && (
-            ammoTypes.length === 0 ? (
-              <EmptyAmmoPrompt isMobile={isMobile} onConfigure={() => setActiveTab("configure")} />
-            ) : (
+            ammoTypes.length === 0 ? <EmptyAmmoPrompt isMobile={isMobile} onConfigure={() => setActiveTab("configure")} /> : (
               <div style={{ ...s.dashGrid, gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fit, minmax(280px, 1fr))", gap: isMobile ? 12 : 20 }}>
                 {ammoTypes.map(a => {
                   const total = bnTotals[a.id] || 0;
@@ -492,24 +551,17 @@ function BNDashboard({ stock, log, bnTotals, ammoTypes, maxPerBty, activeTab, se
                     <div key={a.id} style={{ ...s.ammoCard, borderColor: color, padding: isMobile ? 14 : 24 }}>
                       <div style={s.ammoCardTop}>
                         <span style={{ fontSize: isMobile ? 16 : 20 }}>{ammoIcon(a)}</span>
-                        <span style={{ fontSize: isMobile ? 9 : 10, color: "#94a3b8", fontWeight: "bold", letterSpacing: 1 }}>
-                          {CATEGORY_META[a.category]?.label}
-                        </span>
-                        <span style={{ ...s.statusBadge, background: statusColor(pct) + "22", color: statusColor(pct), border: `1px solid ${statusColor(pct)}`, fontSize: isMobile ? 9 : 11 }}>
-                          {statusLabel(pct)}
-                        </span>
+                        <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: "bold", letterSpacing: 1 }}>{CATEGORY_META[a.category]?.label}</span>
+                        <span style={{ ...s.statusBadge, background: statusColor(pct) + "22", color: statusColor(pct), border: `1px solid ${statusColor(pct)}`, fontSize: isMobile ? 9 : 11 }}>{statusLabel(pct)}</span>
                       </div>
                       <div style={{ ...s.ammoCardLabel, fontSize: isMobile ? 11 : 14 }}>{a.label}</div>
                       <div style={{ ...s.ammoCardQty, color, fontSize: isMobile ? 22 : 32 }}>{total.toLocaleString()}</div>
                       <div style={s.ammoCardUnit}>ROUNDS TOTAL</div>
-                      <div style={s.progressBar}>
-                        <div style={{ ...s.progressFill, width: `${pct}%`, background: color }} />
-                      </div>
+                      <div style={s.progressBar}><div style={{ ...s.progressFill, width: `${pct}%`, background: color }} /></div>
                       <div style={s.progressPct}>{pct}% OF CAPACITY</div>
                     </div>
                   );
                 })}
-
                 <div style={{ ...s.fullRow, ...s.sectionCard, padding: isMobile ? 14 : 24 }}>
                   <div style={{ ...s.sectionTitle, fontSize: isMobile ? 13 : 16 }}>⚡ BATTERY STATUS OVERVIEW</div>
                   <div style={{ ...s.btyStatusGrid, gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fit, minmax(200px, 1fr))", gap: isMobile ? 10 : 16 }}>
@@ -523,9 +575,7 @@ function BNDashboard({ stock, log, bnTotals, ammoTypes, maxPerBty, activeTab, se
                           <div style={{ ...s.btyCallsign, color: b.color, fontSize: isMobile ? 12 : 14 }}>{b.callsign}</div>
                           <div style={{ ...s.btyName, fontSize: isMobile ? 10 : 12 }}>{b.name}</div>
                           <div style={{ ...s.btyTotal, fontSize: isMobile ? 16 : 20 }}>{totalRounds.toLocaleString()} RDS</div>
-                          <div style={s.progressBar}>
-                            <div style={{ ...s.progressFill, width: `${pct}%`, background: b.color }} />
-                          </div>
+                          <div style={s.progressBar}><div style={{ ...s.progressFill, width: `${pct}%`, background: b.color }} /></div>
                           <div style={{ ...s.statusBadge, marginTop: 8, background: statusColor(pct) + "22", color: statusColor(pct), border: `1px solid ${statusColor(pct)}`, fontSize: isMobile ? 9 : 11 }}>
                             {statusLabel(pct)} // {pct}%
                           </div>
@@ -535,7 +585,6 @@ function BNDashboard({ stock, log, bnTotals, ammoTypes, maxPerBty, activeTab, se
                     })}
                   </div>
                 </div>
-
                 <div style={{ ...s.fullRow, ...s.sectionCard, padding: isMobile ? 14 : 24 }}>
                   <div style={{ ...s.sectionTitle, fontSize: isMobile ? 13 : 16 }}>📋 RECENT TRANSACTIONS</div>
                   <LogTable log={log.slice(0, 5)} isMobile={isMobile} />
@@ -545,9 +594,7 @@ function BNDashboard({ stock, log, bnTotals, ammoTypes, maxPerBty, activeTab, se
           )}
 
           {activeTab === "batteries" && (
-            ammoTypes.length === 0 ? (
-              <EmptyAmmoPrompt isMobile={isMobile} onConfigure={() => setActiveTab("configure")} />
-            ) : (
+            ammoTypes.length === 0 ? <EmptyAmmoPrompt isMobile={isMobile} onConfigure={() => setActiveTab("configure")} /> : (
               <div style={{ ...s.dashGrid, gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(280px, 1fr))", gap: isMobile ? 12 : 20 }}>
                 {BATTERIES.map(b => (
                   <div key={b.id} style={{ ...s.btyDetailCard, borderColor: b.color, padding: isMobile ? 14 : 24 }}>
@@ -560,18 +607,14 @@ function BNDashboard({ stock, log, bnTotals, ammoTypes, maxPerBty, activeTab, se
                       if (catTypes.length === 0) return null;
                       return (
                         <div key={cat}>
-                          <div style={{ fontSize: 10, color: meta.color, fontWeight: "bold", letterSpacing: 1, marginTop: 10, marginBottom: 4 }}>
-                            {meta.icon} {meta.label}
-                          </div>
+                          <div style={{ fontSize: 10, color: meta.color, fontWeight: "bold", letterSpacing: 1, marginTop: 10, marginBottom: 4 }}>{meta.icon} {meta.label}</div>
                           {catTypes.map(a => {
                             const qty = stock[b.id]?.[a.id] || 0;
                             const pct = Math.round((qty / maxPerBty) * 100);
                             return (
                               <div key={a.id} style={{ ...s.ammoRow, fontSize: isMobile ? 12 : 13 }}>
-                                <span style={{ ...s.ammoRowLabel }}>{a.label}</span>
-                                <div style={{ ...s.inlineBar }}>
-                                  <div style={{ height: "100%", width: `${pct}%`, background: meta.color, borderRadius: 2, transition: "width 0.3s" }} />
-                                </div>
+                                <span style={s.ammoRowLabel}>{a.label}</span>
+                                <div style={s.inlineBar}><div style={{ height: "100%", width: `${pct}%`, background: meta.color, borderRadius: 2, transition: "width 0.3s" }} /></div>
                                 <span style={{ fontSize: isMobile ? 11 : 12, color: meta.color, fontWeight: "bold", minWidth: 30, textAlign: "right" }}>{qty}</span>
                               </div>
                             );
@@ -593,9 +636,7 @@ function BNDashboard({ stock, log, bnTotals, ammoTypes, maxPerBty, activeTab, se
           )}
 
           {activeTab === "analytics" && (
-            ammoTypes.length === 0 ? (
-              <EmptyAmmoPrompt isMobile={isMobile} onConfigure={() => setActiveTab("configure")} />
-            ) : (
+            ammoTypes.length === 0 ? <EmptyAmmoPrompt isMobile={isMobile} onConfigure={() => setActiveTab("configure")} /> : (
               <div style={{ ...s.sectionCard, padding: isMobile ? 14 : 24 }}>
                 <div style={{ ...s.sectionTitle, fontSize: isMobile ? 13 : 16 }}>📊 AMMUNITION DISTRIBUTION BY BATTERY</div>
                 <ResponsiveContainer width="100%" height={isMobile ? 220 : 300}>
@@ -605,9 +646,7 @@ function BNDashboard({ stock, log, bnTotals, ammoTypes, maxPerBty, activeTab, se
                     <YAxis stroke="#94a3b8" tick={{ fontSize: isMobile ? 10 : 12 }} width={isMobile ? 30 : 40} />
                     <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155", fontSize: isMobile ? 11 : 13 }} />
                     {!isMobile && <Legend />}
-                    {BATTERIES.map(b => (
-                      <Bar key={b.id} dataKey={b.name.split(" ")[1]} fill={b.color} />
-                    ))}
+                    {BATTERIES.map(b => <Bar key={b.id} dataKey={b.name.split(" ")[1]} fill={b.color} />)}
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -615,14 +654,8 @@ function BNDashboard({ stock, log, bnTotals, ammoTypes, maxPerBty, activeTab, se
           )}
 
           {activeTab === "configure" && (
-            <AmmoTypeManager
-              ammoTypes={ammoTypes}
-              onAdd={onAddAmmoType}
-              onDelete={onDeleteAmmoType}
-              isMobile={isMobile}
-            />
+            <AmmoTypeManager ammoTypes={ammoTypes} onAdd={onAddAmmoType} onDelete={onDeleteAmmoType} isMobile={isMobile} />
           )}
-
         </div>
       </div>
     </div>
@@ -653,24 +686,11 @@ function AmmoTypeManager({ ammoTypes, onAdd, onDelete, isMobile }) {
     <div>
       <div style={{ marginBottom: 24 }}>
         <div style={{ fontSize: 18, fontWeight: "bold", marginBottom: 6 }}>⚙️ CONFIGURE AMMUNITION TYPES</div>
-        <div style={{ fontSize: 12, color: "#94a3b8" }}>
-          Define available ammunition types for all battery commanders. Types are organised by category.
-        </div>
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>Define available ammunition types for all battery commanders. Types are organised by category.</div>
       </div>
-
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr",
-        gap: isMobile ? 16 : 24,
-      }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: isMobile ? 16 : 24 }}>
         {Object.entries(CATEGORY_META).map(([cat, meta]) => (
-          <div key={cat} style={{
-            padding: isMobile ? 16 : 24,
-            border: `2px solid ${meta.color}`,
-            background: "#1e293b",
-            borderRadius: 6,
-          }}>
-            {/* Category Header */}
+          <div key={cat} style={{ padding: isMobile ? 16 : 24, border: `2px solid ${meta.color}`, background: "#1e293b", borderRadius: 6 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
               <span style={{ fontSize: 24 }}>{meta.icon}</span>
               <div>
@@ -678,57 +698,20 @@ function AmmoTypeManager({ ammoTypes, onAdd, onDelete, isMobile }) {
                 <div style={{ fontSize: 11, color: "#64748b" }}>{grouped[cat].length} type{grouped[cat].length !== 1 ? "s" : ""} defined</div>
               </div>
             </div>
-
-            {/* Type List */}
             <div style={{ minHeight: 40, marginBottom: 16 }}>
-              {grouped[cat].length === 0 ? (
-                <div style={{ fontSize: 12, color: "#475569", fontStyle: "italic", padding: "8px 0" }}>
-                  No {meta.label.toLowerCase()} types yet
-                </div>
-              ) : (
-                grouped[cat].map(a => (
-                  <div key={a.id} style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "9px 0",
-                    borderBottom: "1px solid #334155",
-                  }}>
+              {grouped[cat].length === 0
+                ? <div style={{ fontSize: 12, color: "#475569", fontStyle: "italic", padding: "8px 0" }}>No {meta.label.toLowerCase()} types yet</div>
+                : grouped[cat].map(a => (
+                  <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid #334155" }}>
                     <span style={{ fontSize: 13, color: "#e2e8f0" }}>{a.label}</span>
-                    <button
-                      onClick={() => onDelete(a.id)}
-                      style={{
-                        padding: "3px 10px",
-                        background: "#ef444415",
-                        color: "#ef4444",
-                        border: "1px solid #ef444440",
-                        borderRadius: 3,
-                        cursor: "pointer",
-                        fontSize: 11,
-                        fontWeight: "bold",
-                        letterSpacing: 0.5,
-                      }}
-                    >
-                      ✕ DEL
-                    </button>
+                    <button onClick={() => onDelete(a.id)} style={{ padding: "3px 10px", background: "#ef444415", color: "#ef4444", border: "1px solid #ef444440", borderRadius: 3, cursor: "pointer", fontSize: 11, fontWeight: "bold" }}>✕ DEL</button>
                   </div>
                 ))
-              )}
+              }
             </div>
-
-            {/* Add Form */}
             <div style={{ display: "flex", gap: 8 }}>
               <input
-                style={{
-                  flex: 1,
-                  padding: "8px 10px",
-                  background: "#0f172a",
-                  border: `1px solid ${meta.color}55`,
-                  color: "#fff",
-                  borderRadius: 4,
-                  fontSize: 13,
-                  outline: "none",
-                }}
+                style={{ flex: 1, padding: "8px 10px", background: "#0f172a", border: `1px solid ${meta.color}55`, color: "#fff", borderRadius: 4, fontSize: 13, outline: "none" }}
                 placeholder={`New ${meta.label.toLowerCase()} name...`}
                 value={inputs[cat]}
                 onChange={e => setInputs(p => ({ ...p, [cat]: e.target.value }))}
@@ -737,18 +720,7 @@ function AmmoTypeManager({ ammoTypes, onAdd, onDelete, isMobile }) {
               <button
                 onClick={() => handleAdd(cat)}
                 disabled={busy[cat] || !inputs[cat].trim()}
-                style={{
-                  padding: "8px 14px",
-                  background: inputs[cat].trim() ? meta.color : "#334155",
-                  color: inputs[cat].trim() ? "#000" : "#64748b",
-                  border: "none",
-                  borderRadius: 4,
-                  cursor: inputs[cat].trim() ? "pointer" : "default",
-                  fontSize: 12,
-                  fontWeight: "bold",
-                  transition: "all 0.2s",
-                  whiteSpace: "nowrap",
-                }}
+                style={{ padding: "8px 14px", background: inputs[cat].trim() ? meta.color : "#334155", color: inputs[cat].trim() ? "#000" : "#64748b", border: "none", borderRadius: 4, cursor: inputs[cat].trim() ? "pointer" : "default", fontSize: 12, fontWeight: "bold", transition: "all 0.2s", whiteSpace: "nowrap" }}
               >
                 {busy[cat] ? "..." : "+ ADD"}
               </button>
@@ -769,25 +741,23 @@ function EmptyAmmoPrompt({ isMobile, onConfigure }) {
       <div style={{ fontSize: 13, color: "#94a3b8", maxWidth: 380, lineHeight: 1.7 }}>
         The Battalion Commander must define ammunition types before batteries can log transactions.
       </div>
-      <button
-        onClick={onConfigure}
-        style={{ marginTop: 8, padding: "12px 28px", background: "#a3e635", color: "#000", border: "none", borderRadius: 4, fontWeight: "bold", cursor: "pointer", fontSize: 13, letterSpacing: 1 }}
-      >
+      <button onClick={onConfigure} style={{ marginTop: 8, padding: "12px 28px", background: "#a3e635", color: "#000", border: "none", borderRadius: 4, fontWeight: "bold", cursor: "pointer", fontSize: 13, letterSpacing: 1 }}>
         CONFIGURE AMMO TYPES →
       </button>
     </div>
   );
 }
 
-// ─── BATTERY COMMANDER ─────────────────────────────────────────────────────────
-function BtyCommander({ battery, batteries, selectedBattery, setSelectedBattery, ammoTypes, stock, log, txAmmoId, setTxAmmoId, txQty, setTxQty, txNote, setTxNote, txType, setTxType, onSubmit, flash, maxPerBty, onLogout }) {
+// ─── BATTERY COMMANDER ────────────────────────────────────────────────────────
+function BtyCommander({ battery, batteries, selectedBattery, setSelectedBattery, ammoTypes, stock, log, txAmmoId, setTxAmmoId, txQty, setTxQty, txNote, setTxNote, txType, setTxType, onSubmit, onFireMission, flash, maxPerBty, onLogout }) {
   const isMobile = useIsMobile();
-
+  const [btyTab, setBtyTab] = useState("firemission");
   const hasTypes = ammoTypes.length > 0;
 
   return (
     <div style={s.screen}>
       <div style={s.btyWrap}>
+        {/* Header */}
         <div style={{ ...s.btyHeader, padding: isMobile ? "12px 16px" : "20px 32px" }}>
           <div style={{ ...s.btyLeft, gap: isMobile ? 10 : 16 }}>
             <div style={{ ...s.btyIcon, fontSize: isMobile ? 22 : 28 }}>⚡</div>
@@ -804,106 +774,55 @@ function BtyCommander({ battery, batteries, selectedBattery, setSelectedBattery,
           </div>
         </div>
 
+        {/* Tabs */}
+        <div style={{ ...s.tabs, paddingLeft: isMobile ? 4 : 24, overflowX: "auto", scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          {[
+            { id: "firemission", label: "🎯 FIRE MISSION", activeColor: "#ef4444" },
+            { id: "ammunition",  label: "📦 AMMUNITION",   activeColor: "#38bdf8" },
+          ].map(t => (
+            <button key={t.id} style={{
+              ...s.tab,
+              ...(btyTab === t.id ? { color: "#fff", borderBottomColor: t.activeColor } : {}),
+              padding: isMobile ? "10px 14px" : "12px 24px",
+              fontSize: isMobile ? 11 : 13,
+              whiteSpace: "nowrap", flexShrink: 0,
+            }} onClick={() => setBtyTab(t.id)}>{t.label}</button>
+          ))}
+        </div>
+
+        {/* Body */}
         {!hasTypes ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 32, textAlign: "center", gap: 12 }}>
             <div style={{ fontSize: 40 }}>⚙️</div>
             <div style={{ fontSize: isMobile ? 16 : 20, fontWeight: "bold" }}>AWAITING CONFIGURATION</div>
             <div style={{ fontSize: 13, color: "#94a3b8", maxWidth: 340, lineHeight: 1.7 }}>
-              No ammunition types have been defined yet. Contact your Battalion Commander to configure available ammo types.
+              No ammunition types have been defined yet. Contact your Battalion Commander.
             </div>
           </div>
+        ) : btyTab === "firemission" ? (
+          <FireMissionTab
+            ammoTypes={ammoTypes}
+            stock={stock}
+            log={log}
+            onFireMission={onFireMission}
+            maxPerBty={maxPerBty}
+            isMobile={isMobile}
+            batteryColor={battery.color}
+          />
         ) : (
-          <div style={{
-            ...s.btyBody,
-            gridTemplateColumns: isMobile ? "1fr" : "1fr 1.2fr",
-            overflow: isMobile ? "auto" : "hidden",
-            padding: isMobile ? 12 : 20,
-            gap: isMobile ? 12 : 20,
-          }}>
-            <div style={{ ...s.btyLeftpanel, paddingRight: isMobile ? 0 : 12, overflow: isMobile ? "visible" : "auto" }}>
-              {/* Transaction Form */}
-              <div style={{ ...s.txCard, borderColor: battery.color, borderWidth: 2, padding: isMobile ? 16 : 20 }}>
-                <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: "bold", marginBottom: 16 }}>📝 LOG TRANSACTION</div>
-
-                <div style={s.txField}>
-                  <label style={s.txLabel}>AMMUNITION TYPE</label>
-                  <select style={{ ...s.txSelect, fontSize: isMobile ? 12 : 13 }} value={txAmmoId} onChange={e => setTxAmmoId(e.target.value)}>
-                    {Object.entries(CATEGORY_META).map(([cat, meta]) => {
-                      const catTypes = ammoTypes.filter(a => a.category === cat);
-                      if (catTypes.length === 0) return null;
-                      return (
-                        <optgroup key={cat} label={`${meta.icon} ${meta.label}`}>
-                          {catTypes.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
-                        </optgroup>
-                      );
-                    })}
-                  </select>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-                  <div style={s.txField}>
-                    <label style={s.txLabel}>TYPE</label>
-                    <select style={{ ...s.txSelect, fontSize: isMobile ? 12 : 13 }} value={txType} onChange={e => setTxType(e.target.value)}>
-                      <option value="ADD">➕ ADD</option>
-                      <option value="SUB">➖ EXPEND</option>
-                    </select>
-                  </div>
-                  <div style={s.txField}>
-                    <label style={s.txLabel}>QUANTITY</label>
-                    <input style={{ ...s.txInput, fontSize: isMobile ? 12 : 13 }} type="number" value={txQty} onChange={e => setTxQty(e.target.value)} placeholder="0" />
-                  </div>
-                </div>
-
-                <div style={s.txField}>
-                  <label style={s.txLabel}>NOTE (OPTIONAL)</label>
-                  <input style={{ ...s.txInput, fontSize: isMobile ? 12 : 13 }} type="text" value={txNote} onChange={e => setTxNote(e.target.value)} placeholder="Resupply from HQ..." />
-                </div>
-
-                <button style={{ ...s.txButton, padding: isMobile ? 14 : 12, fontSize: isMobile ? 14 : 13 }} onClick={onSubmit}>
-                  SUBMIT TRANSACTION
-                </button>
-              </div>
-
-              {/* Current Stock grouped by category */}
-              <div style={{ ...s.txCard, padding: isMobile ? 16 : 20 }}>
-                <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: "bold", marginBottom: 12 }}>📊 CURRENT STOCK</div>
-                {Object.entries(CATEGORY_META).map(([cat, meta]) => {
-                  const catTypes = ammoTypes.filter(a => a.category === cat);
-                  if (catTypes.length === 0) return null;
-                  return (
-                    <div key={cat} style={{ marginBottom: 16 }}>
-                      <div style={{ fontSize: 10, color: meta.color, fontWeight: "bold", letterSpacing: 1, marginBottom: 8 }}>
-                        {meta.icon} {meta.label}
-                      </div>
-                      {catTypes.map(a => {
-                        const qty = stock[a.id] || 0;
-                        const pct = Math.round((qty / maxPerBty) * 100);
-                        return (
-                          <div key={a.id} style={{ marginBottom: 10 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: isMobile ? 11 : 12 }}>
-                              <span style={{ color: "#cbd5e1" }}>{a.label}</span>
-                              <span style={{ color: meta.color, fontWeight: "bold" }}>{qty}</span>
-                            </div>
-                            <div style={s.progressBar}>
-                              <div style={{ ...s.progressFill, width: `${pct}%`, background: meta.color }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Transaction Log */}
-            <div style={{ display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "auto", paddingRight: isMobile ? 0 : 12 }}>
-              <div style={{ ...s.sectionCard, padding: isMobile ? 16 : 24 }}>
-                <div style={{ ...s.sectionTitle, fontSize: isMobile ? 13 : 16 }}>📋 BATTERY TRANSACTION LOG</div>
-                <LogTable log={log} isMobile={isMobile} />
-              </div>
-            </div>
-          </div>
+          <AmmunitionTab
+            ammoTypes={ammoTypes}
+            stock={stock}
+            log={log}
+            txAmmoId={txAmmoId} setTxAmmoId={setTxAmmoId}
+            txQty={txQty} setTxQty={setTxQty}
+            txNote={txNote} setTxNote={setTxNote}
+            txType={txType} setTxType={setTxType}
+            onSubmit={onSubmit}
+            maxPerBty={maxPerBty}
+            isMobile={isMobile}
+            batteryColor={battery.color}
+          />
         )}
       </div>
 
@@ -925,22 +844,277 @@ function BtyCommander({ battery, batteries, selectedBattery, setSelectedBattery,
   );
 }
 
-// ─── LOG TABLE ─────────────────────────────────────────────────────────────────
+// ─── FIRE MISSION TAB ─────────────────────────────────────────────────────────
+function FireMissionTab({ ammoTypes, stock, log, onFireMission, maxPerBty, isMobile, batteryColor }) {
+  const [missionName, setMissionName] = useState("");
+  const [ammoQtys, setAmmoQtys] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+
+  const fireMissions = useMemo(() => groupFireMissions(log), [log]);
+
+  function setQty(id, val) {
+    setAmmoQtys(prev => ({ ...prev, [id]: val }));
+  }
+
+  async function handleSubmit() {
+    setSubmitting(true);
+    const success = await onFireMission(missionName, ammoQtys);
+    if (success) {
+      setMissionName("");
+      setAmmoQtys({});
+    }
+    setSubmitting(false);
+  }
+
+  const hasAnyQty = Object.values(ammoQtys).some(v => parseInt(v, 10) > 0);
+
+  return (
+    <div style={{ flex: 1, overflow: "auto", padding: isMobile ? 12 : 24 }}>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+        gap: isMobile ? 14 : 24,
+        maxWidth: 1100,
+      }}>
+
+        {/* ── Form ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 12 : 16 }}>
+          <div style={{ ...s.txCard, borderColor: "#ef4444", borderWidth: 2, padding: isMobile ? 16 : 20 }}>
+            <div style={{ fontSize: isMobile ? 14 : 15, fontWeight: "bold", marginBottom: 16, color: "#ef4444", letterSpacing: 1 }}>
+              🎯 LOG FIRE MISSION
+            </div>
+
+            {/* Mission Name */}
+            <div style={s.txField}>
+              <label style={s.txLabel}>MISSION IDENTIFIER (OPTIONAL)</label>
+              <input
+                style={{ ...s.txInput, fontSize: isMobile ? 13 : 14 }}
+                placeholder="e.g. ATLAS-01, GRID 456789..."
+                value={missionName}
+                onChange={e => setMissionName(e.target.value)}
+              />
+            </div>
+
+            {/* Ammo Inputs grouped by category */}
+            {Object.entries(CATEGORY_META).map(([cat, meta]) => {
+              const catTypes = ammoTypes.filter(a => a.category === cat);
+              if (catTypes.length === 0) return null;
+              return (
+                <div key={cat} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, color: meta.color, fontWeight: "bold", letterSpacing: 1, marginBottom: 10 }}>
+                    {meta.icon} {meta.label}
+                  </div>
+                  {catTypes.map(a => {
+                    const onHand = stock[a.id] || 0;
+                    const entered = parseInt(ammoQtys[a.id] || "0", 10);
+                    const over = entered > onHand;
+                    return (
+                      <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: isMobile ? 11 : 12, color: "#cbd5e1", marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.label}</div>
+                          <div style={{ fontSize: 10, color: over ? "#ef4444" : "#64748b" }}>
+                            {over ? `⚠ ONLY ${onHand} ON HAND` : `${onHand} on hand`}
+                          </div>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          style={{
+                            width: 80,
+                            padding: "7px 10px",
+                            background: "#0f172a",
+                            border: `1px solid ${over ? "#ef4444" : entered > 0 ? meta.color : "#334155"}`,
+                            color: over ? "#ef4444" : "#fff",
+                            borderRadius: 4,
+                            fontSize: 14,
+                            textAlign: "center",
+                            flexShrink: 0,
+                          }}
+                          placeholder="0"
+                          value={ammoQtys[a.id] || ""}
+                          onChange={e => setQty(a.id, e.target.value)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+
+            <button
+              onClick={handleSubmit}
+              disabled={submitting || !hasAnyQty}
+              style={{
+                width: "100%",
+                padding: isMobile ? 14 : 13,
+                background: hasAnyQty && !submitting ? "#ef4444" : "#334155",
+                color: hasAnyQty && !submitting ? "#fff" : "#64748b",
+                border: "none", borderRadius: 4,
+                fontWeight: "bold", cursor: hasAnyQty && !submitting ? "pointer" : "default",
+                fontSize: isMobile ? 14 : 13, letterSpacing: 1,
+                transition: "all 0.2s",
+              }}
+            >
+              {submitting ? "SUBMITTING..." : "🎯 SUBMIT FIRE MISSION"}
+            </button>
+          </div>
+        </div>
+
+        {/* ── Recent Fire Missions ── */}
+        <div style={{ ...s.sectionCard, padding: isMobile ? 14 : 20 }}>
+          <div style={{ fontSize: isMobile ? 13 : 15, fontWeight: "bold", marginBottom: 16, letterSpacing: 1 }}>
+            📋 RECENT FIRE MISSIONS
+          </div>
+          {fireMissions.length === 0 ? (
+            <div style={{ fontSize: 13, color: "#475569", textAlign: "center", padding: "24px 0" }}>
+              No fire missions logged yet
+            </div>
+          ) : (
+            fireMissions.map((m, i) => (
+              <div key={i} style={{ padding: "12px 0", borderBottom: "1px solid #334155" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                  <div style={{ fontSize: isMobile ? 12 : 13, fontWeight: "bold", color: "#ef4444" }}>
+                    🎯 {m.name || "FIRE MISSION"}
+                  </div>
+                  <div style={{ fontSize: 10, color: "#64748b", flexShrink: 0, marginLeft: 8 }}>
+                    {new Date(m.time).toLocaleTimeString('en-GB', { hour12: false })}
+                    {" "}
+                    {new Date(m.time).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase()}
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {m.items.map((item, j) => (
+                    <span key={j} style={{
+                      padding: "2px 8px",
+                      background: "#0f172a",
+                      border: "1px solid #334155",
+                      borderRadius: 3,
+                      fontSize: 11,
+                      color: "#cbd5e1",
+                    }}>
+                      {item.ammoLabel || item.ammoId} × {item.quantity}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── AMMUNITION TAB ───────────────────────────────────────────────────────────
+function AmmunitionTab({ ammoTypes, stock, log, txAmmoId, setTxAmmoId, txQty, setTxQty, txNote, setTxNote, txType, setTxType, onSubmit, maxPerBty, isMobile, batteryColor }) {
+  return (
+    <div style={{
+      flex: 1,
+      display: "grid",
+      gridTemplateColumns: isMobile ? "1fr" : "1fr 1.2fr",
+      gap: isMobile ? 12 : 20,
+      padding: isMobile ? 12 : 20,
+      overflow: isMobile ? "auto" : "hidden",
+    }}>
+      {/* Left: form + stock */}
+      <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 12 : 16, overflow: isMobile ? "visible" : "auto", paddingRight: isMobile ? 0 : 4 }}>
+        {/* Transaction Form */}
+        <div style={{ ...s.txCard, borderColor: batteryColor, borderWidth: 2, padding: isMobile ? 16 : 20 }}>
+          <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: "bold", marginBottom: 16 }}>📝 LOG TRANSACTION</div>
+
+          <div style={s.txField}>
+            <label style={s.txLabel}>AMMUNITION TYPE</label>
+            <select style={{ ...s.txSelect, fontSize: isMobile ? 12 : 13 }} value={txAmmoId} onChange={e => setTxAmmoId(e.target.value)}>
+              {Object.entries(CATEGORY_META).map(([cat, meta]) => {
+                const catTypes = ammoTypes.filter(a => a.category === cat);
+                if (catTypes.length === 0) return null;
+                return (
+                  <optgroup key={cat} label={`${meta.icon} ${meta.label}`}>
+                    {catTypes.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+                  </optgroup>
+                );
+              })}
+            </select>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+            <div style={s.txField}>
+              <label style={s.txLabel}>TYPE</label>
+              <select style={{ ...s.txSelect, fontSize: isMobile ? 12 : 13 }} value={txType} onChange={e => setTxType(e.target.value)}>
+                <option value="ADD">➕ ADD</option>
+                <option value="SUB">➖ EXPEND</option>
+              </select>
+            </div>
+            <div style={s.txField}>
+              <label style={s.txLabel}>QUANTITY</label>
+              <input style={{ ...s.txInput, fontSize: isMobile ? 12 : 13 }} type="number" value={txQty} onChange={e => setTxQty(e.target.value)} placeholder="0" />
+            </div>
+          </div>
+
+          <div style={s.txField}>
+            <label style={s.txLabel}>NOTE (OPTIONAL)</label>
+            <input style={{ ...s.txInput, fontSize: isMobile ? 12 : 13 }} type="text" value={txNote} onChange={e => setTxNote(e.target.value)} placeholder="Resupply from HQ..." />
+          </div>
+
+          <button style={{ ...s.txButton, padding: isMobile ? 14 : 12, fontSize: isMobile ? 14 : 13 }} onClick={onSubmit}>
+            SUBMIT TRANSACTION
+          </button>
+        </div>
+
+        {/* Stock Overview */}
+        <div style={{ ...s.txCard, padding: isMobile ? 16 : 20 }}>
+          <div style={{ fontSize: isMobile ? 13 : 14, fontWeight: "bold", marginBottom: 12 }}>📊 CURRENT STOCK</div>
+          {Object.entries(CATEGORY_META).map(([cat, meta]) => {
+            const catTypes = ammoTypes.filter(a => a.category === cat);
+            if (catTypes.length === 0) return null;
+            return (
+              <div key={cat} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, color: meta.color, fontWeight: "bold", letterSpacing: 1, marginBottom: 8 }}>{meta.icon} {meta.label}</div>
+                {catTypes.map(a => {
+                  const qty = stock[a.id] || 0;
+                  const pct = Math.round((qty / maxPerBty) * 100);
+                  return (
+                    <div key={a.id} style={{ marginBottom: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: isMobile ? 11 : 12 }}>
+                        <span style={{ color: "#cbd5e1" }}>{a.label}</span>
+                        <span style={{ color: meta.color, fontWeight: "bold" }}>{qty}</span>
+                      </div>
+                      <div style={s.progressBar}>
+                        <div style={{ ...s.progressFill, width: `${pct}%`, background: meta.color }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Right: Transaction Log */}
+      <div style={{ display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "auto", paddingRight: isMobile ? 0 : 4 }}>
+        <div style={{ ...s.sectionCard, padding: isMobile ? 16 : 24 }}>
+          <div style={{ ...s.sectionTitle, fontSize: isMobile ? 13 : 16 }}>📋 TRANSACTION LOG</div>
+          <LogTable log={log} isMobile={isMobile} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── LOG TABLE ────────────────────────────────────────────────────────────────
 function LogTable({ log, isMobile }) {
   return (
     <div>
       <div style={{ ...s.logRow, ...s.logHeader, fontSize: isMobile ? 10 : 11 }}>
-        <span>TIME</span>
-        <span>AMMO</span>
-        <span>TX</span>
-        <span>QTY</span>
+        <span>TIME</span><span>AMMO</span><span>TX</span><span>QTY</span>
       </div>
-      {(log || []).map((entry) => (
+      {(log || []).map(entry => (
         <div key={entry._id || entry.id} style={{ ...s.logRow, fontSize: isMobile ? 11 : 12 }}>
           <span style={{ color: "#94a3b8" }}>
             {entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('en-GB', { hour12: false }) : entry.time}
           </span>
-          <span style={{ color: "#cbd5e1" }}>{entry.ammoLabel || entry.ammoId}</span>
+          <span style={{ color: "#cbd5e1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.ammoLabel || entry.ammoId}</span>
           <span style={{ color: entry.type === "ADD" ? "#4ade80" : "#ef4444" }}>{entry.type}</span>
           <span style={{ fontWeight: "bold" }}>{entry.quantity}</span>
         </div>
