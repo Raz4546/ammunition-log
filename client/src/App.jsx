@@ -644,7 +644,27 @@ function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batter
                       <div style={{ fontSize: isMobile ? 24 : 32, fontWeight: "bold", color, marginBottom: 2 }}>{total.toLocaleString()}</div>
                       <div style={{ fontSize: 10, color: "#64748b", marginBottom: 10, letterSpacing: 1 }}>ROUNDS TOTAL</div>
                       <div style={s.progressBar}><div style={{ ...s.progressFill, width: `${pct}%`, background: color }} /></div>
-                      <div style={{ fontSize: 10, color: "#64748b", textAlign: "right" }}>{pct}%</div>
+                      <div style={{ fontSize: 10, color: "#64748b", textAlign: "right", marginBottom: 12 }}>{pct}%</div>
+                      {/* Per-battery breakdown */}
+                      {batteries.length > 0 && (
+                        <div style={{ borderTop: "1px solid #334155", paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                          {batteries.map(b => {
+                            const bQty = batteryTotals[b.id]?.[a.id] || 0;
+                            const bPct = total > 0 ? Math.round((bQty / total) * 100) : 0;
+                            return (
+                              <div key={b.id}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                                  <span style={{ fontSize: 10, color: b.color, fontWeight: "bold" }}>{b.callsign}</span>
+                                  <span style={{ fontSize: 10, color: "#94a3b8" }}>{bQty.toLocaleString()} <span style={{ color: "#475569" }}>({bPct}%)</span></span>
+                                </div>
+                                <div style={{ height: 3, background: "#0f172a", borderRadius: 2 }}>
+                                  <div style={{ height: "100%", width: `${bPct}%`, background: b.color, borderRadius: 2, transition: "width 0.3s" }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
