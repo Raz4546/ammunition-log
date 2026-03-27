@@ -34,6 +34,7 @@ app.use('/api/transactions', require('./routes/transactions'));
 app.use('/api/batteries', require('./routes/batteries'));
 app.use('/api/teams', require('./routes/teams'));
 app.use('/api/ammo-types', require('./routes/ammoTypes'));
+app.use('/api/notify', require('./routes/notify'));
 
 // Health check
 app.get('/api/health', (req, res) => {

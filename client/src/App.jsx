@@ -251,7 +251,9 @@ export default function App() {
         teamName: team?.name, batteryName: bat?.name, ammoLabel: aType?.label || txAmmoId,
       });
       const newQty = txType === "ADD" ? current + qty : current - qty;
-      setStock(prev => ({ ...prev, [selectedTeamId]: { ...prev[selectedTeamId], [txAmmoId]: newQty } }));
+      const newStock = { ...stock, [selectedTeamId]: { ...stock[selectedTeamId], [txAmmoId]: newQty } };
+      setStock(newStock);
+      checkRedLineAlerts(newStock, stock);
       setLog(prev => [tx, ...prev]);
       setTxQty(""); setTxNote("");
       showFlash(`${txType === "ADD" ? "+" : "-"}${qty} ROUNDS LOGGED`, "success");
@@ -287,7 +289,9 @@ export default function App() {
         newTxs.push(tx);
         updates[id] = current - qty;
       }
-      setStock(prev => ({ ...prev, [selectedTeamId]: { ...prev[selectedTeamId], ...updates } }));
+      const newStock = { ...stock, [selectedTeamId]: { ...stock[selectedTeamId], ...updates } };
+      setStock(newStock);
+      checkRedLineAlerts(newStock, stock);
       setLog(prev => [...newTxs.reverse(), ...prev]);
       showFlash(`FIRE MISSION LOGGED — ${items.length} TYPE${items.length > 1 ? "S" : ""}`, "success");
       return true;
@@ -310,10 +314,39 @@ export default function App() {
         ammoId, type, quantity: qty, note: "INVENTORY ADJUSTMENT",
         teamName: team?.name, batteryName: bat?.name, ammoLabel: aType?.label || ammoId,
       });
-      setStock(prev => ({ ...prev, [selectedTeamId]: { ...prev[selectedTeamId], [ammoId]: targetQty } }));
+      const newStock = { ...stock, [selectedTeamId]: { ...stock[selectedTeamId], [ammoId]: targetQty } };
+      setStock(newStock);
+      checkRedLineAlerts(newStock, stock);
       setLog(prev => [tx, ...prev]);
       showFlash(`${aType?.label || ammoId} → ${targetQty} RDS`, "success");
     } catch (err) { showFlash(err.message || "Adjust failed", "error"); }
+  }
+
+  // ── WhatsApp alerts ──
+  async function sendWhatsAppAlert(text) {
+    const phone  = localStorage.getItem('ammo_wb_phone');
+    const apikey = localStorage.getItem('ammo_wb_apikey');
+    if (!phone || !apikey) return;
+    try { await api.post('/notify/whatsapp', { phone, apikey, text }); } catch (_) {}
+  }
+
+  function checkRedLineAlerts(newStock, oldStock) {
+    batteries.forEach(b => {
+      const bTeams = teams.filter(t => t.batteryId === b.id);
+      (b.redLines || []).forEach(rl => {
+        if (!rl.ammoIds?.length || !rl.threshold) return;
+        const calcSum = (s) => bTeams.reduce((sum, t) =>
+          sum + rl.ammoIds.reduce((s2, id) => s2 + (s[t.id]?.[id] || 0), 0), 0);
+        const oldSum = calcSum(oldStock);
+        const newSum = calcSum(newStock);
+        if (oldSum >= rl.threshold && newSum < rl.threshold) {
+          const rlLabels = rl.ammoIds.map(id => ammoTypes.find(a => a.id === id)?.label || id).join(' + ');
+          const now = new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', hour12: false });
+          const msg = `🔴 RED LINE BREACH\n━━━━━━━━━━━━━━━━━━━━\nBattery: ${b.name} (${b.callsign})\n${rl.label ? rl.label + ': ' : ''}${rlLabels}\nCurrent: ${newSum} / ${rl.threshold} RDS\nTime: ${now}`;
+          sendWhatsAppAlert(msg);
+        }
+      });
+    });
   }
 
   function showFlash(msg, kind) {
@@ -1457,7 +1490,25 @@ function SummaryTab({ batteries, teams, ammoTypes, log, isMobile }) {
 
   const [start, setStart] = useState(fmt(yesterday));
   const [end,   setEnd]   = useState(fmt(now));
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied]   = useState(false);
+  const [waSent, setWaSent]   = useState(false);
+  const [waError, setWaError] = useState(null);
+  const [wbPhone, setWbPhone] = useState(() => localStorage.getItem('ammo_wb_phone')  || '');
+  const [wbKey,   setWbKey]   = useState(() => localStorage.getItem('ammo_wb_apikey') || '');
+  const [showWbSettings, setShowWbSettings] = useState(false);
+
+  function updateWbPhone(v) { setWbPhone(v); localStorage.setItem('ammo_wb_phone', v); }
+  function updateWbKey(v)   { setWbKey(v);   localStorage.setItem('ammo_wb_apikey', v); }
+
+  async function handleSendWhatsApp() {
+    if (!wbPhone || !wbKey) { setShowWbSettings(true); return; }
+    setWaError(null);
+    try {
+      await api.post('/notify/whatsapp', { phone: wbPhone, apikey: wbKey, text: generateText() });
+      setWaSent(true);
+      setTimeout(() => setWaSent(false), 3000);
+    } catch (e) { setWaError(e.message || 'Failed to send'); }
+  }
 
   const startMs = new Date(start).getTime();
   const endMs   = new Date(end).getTime();
@@ -1556,6 +1607,37 @@ function SummaryTab({ batteries, teams, ammoTypes, log, isMobile }) {
 
   return (
     <div>
+      {/* WhatsApp settings panel */}
+      <div style={{ ...s.sectionCard, marginBottom: 16, border: "1px solid #25d36620" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 12, fontWeight: "bold", color: "#25d366" }}>📱 WHATSAPP GROUP</div>
+          <button onClick={() => setShowWbSettings(p => !p)}
+            style={{ fontSize: 11, color: "#64748b", background: "none", border: "none", cursor: "pointer" }}>
+            {showWbSettings ? "▲ HIDE" : "▼ CONFIGURE"}
+          </button>
+        </div>
+        {showWbSettings && (
+          <div style={{ marginTop: 12, display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={s.txLabel}>GROUP PHONE / ID</label>
+              <input placeholder="+972501234567" value={wbPhone} onChange={e => updateWbPhone(e.target.value)}
+                style={{ ...s.txInput, width: "100%", boxSizing: "border-box" }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={s.txLabel}>CALLMEBOT API KEY</label>
+              <input placeholder="API key from CallMeBot..." value={wbKey} onChange={e => updateWbKey(e.target.value)}
+                style={{ ...s.txInput, width: "100%", boxSizing: "border-box" }} />
+            </div>
+          </div>
+        )}
+        {!showWbSettings && (
+          <div style={{ marginTop: 6, fontSize: 11, color: wbPhone && wbKey ? "#4ade80" : "#ef4444" }}>
+            {wbPhone && wbKey ? `✓ Configured — ${wbPhone}` : "Not configured — click CONFIGURE to set up"}
+          </div>
+        )}
+        {waError && <div style={{ marginTop: 8, fontSize: 11, color: "#ef4444" }}>⚠ {waError}</div>}
+      </div>
+
       {/* Controls */}
       <div style={{ ...s.sectionCard, marginBottom: 20, display: "flex", flexDirection: isMobile ? "column" : "row", gap: 12, alignItems: isMobile ? "stretch" : "flex-end" }}>
         <div style={{ flex: 1 }}>
@@ -1570,6 +1652,9 @@ function SummaryTab({ batteries, teams, ammoTypes, log, isMobile }) {
         </div>
         <button onClick={handleCopy} style={{ padding: isMobile ? "10px 16px" : "10px 24px", background: copied ? "#4ade80" : "#38bdf8", color: "#000", border: "none", borderRadius: 4, fontWeight: "bold", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.2s", flexShrink: 0 }}>
           {copied ? "✓ COPIED!" : "📋 COPY TEXT"}
+        </button>
+        <button onClick={handleSendWhatsApp} style={{ padding: isMobile ? "10px 16px" : "10px 24px", background: waSent ? "#4ade80" : "#25d366", color: "#000", border: "none", borderRadius: 4, fontWeight: "bold", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.2s", flexShrink: 0 }}>
+          {waSent ? "✓ SENT!" : "📱 SEND TO WHATSAPP"}
         </button>
       </div>
 
