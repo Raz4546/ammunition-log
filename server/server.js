@@ -25,6 +25,7 @@ mongoose.connect(process.env.MONGODB_URI, {
 app.use('/api/ammunition', require('./routes/ammunition'));
 app.use('/api/transactions', require('./routes/transactions'));
 app.use('/api/batteries', require('./routes/batteries'));
+app.use('/api/ammo-types', require('./routes/ammoTypes'));
 
 // Health check
 app.get('/api/health', (req, res) => {

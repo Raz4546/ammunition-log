@@ -9,7 +9,6 @@ const AmmunitionSchema = new mongoose.Schema({
   ammoId: {
     type: String,
     required: true,
-    enum: ['HE', 'SMK', 'ILLUM', 'WP', 'DPICM', 'EXCAL']
   },
   quantity: {
     type: Number,
