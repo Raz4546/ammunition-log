@@ -134,73 +134,85 @@ export default function App() {
 
   // ── Battery management ──
   async function handleAddBattery(name) {
-    const b = await api.post('/batteries', { name });
-    setBatteries(prev => [...prev, b]);
-    showFlash(`${b.name} CREATED`, "success");
-    return b;
+    try {
+      const b = await api.post('/batteries', { name });
+      setBatteries(prev => [...prev, b]);
+      showFlash(`${b.name} CREATED`, "success");
+      return b;
+    } catch (err) { showFlash(err.message || "Failed to create battery", "error"); throw err; }
   }
 
   async function handleDeleteBattery(id) {
-    await api.del(`/batteries/${id}`);
-    setBatteries(prev => prev.filter(b => b.id !== id));
-    const removedTeams = teams.filter(t => t.batteryId === id).map(t => t.id);
-    setTeams(prev => prev.filter(t => t.batteryId !== id));
-    setStock(prev => {
-      const next = { ...prev };
-      removedTeams.forEach(tid => delete next[tid]);
-      return next;
-    });
-    showFlash("BATTERY DELETED", "success");
+    try {
+      await api.del(`/batteries/${id}`);
+      setBatteries(prev => prev.filter(b => b.id !== id));
+      const removedTeams = teams.filter(t => t.batteryId === id).map(t => t.id);
+      setTeams(prev => prev.filter(t => t.batteryId !== id));
+      setStock(prev => {
+        const next = { ...prev };
+        removedTeams.forEach(tid => delete next[tid]);
+        return next;
+      });
+      showFlash("BATTERY DELETED", "success");
+    } catch (err) { showFlash(err.message || "Failed to delete battery", "error"); }
   }
 
   // ── Team management ──
   async function handleAddTeam(name, batteryId) {
-    const t = await api.post('/teams', { name, batteryId });
-    setTeams(prev => [...prev, t]);
-    setStock(prev => {
-      const teamStock = {};
-      ammoTypes.forEach(a => { teamStock[a.id] = 0; });
-      return { ...prev, [t.id]: teamStock };
-    });
-    showFlash(`${t.name} CREATED`, "success");
-    return t;
+    try {
+      const t = await api.post('/teams', { name, batteryId });
+      setTeams(prev => [...prev, t]);
+      setStock(prev => {
+        const teamStock = {};
+        ammoTypes.forEach(a => { teamStock[a.id] = 0; });
+        return { ...prev, [t.id]: teamStock };
+      });
+      showFlash(`${t.name} CREATED`, "success");
+      return t;
+    } catch (err) { showFlash(err.message || "Failed to create team", "error"); throw err; }
   }
 
   async function handleDeleteTeam(id) {
-    await api.del(`/teams/${id}`);
-    setTeams(prev => prev.filter(t => t.id !== id));
-    setStock(prev => { const n = { ...prev }; delete n[id]; return n; });
-    if (selectedTeamId === id) setSelectedTeamId(null);
-    showFlash("TEAM DELETED", "success");
+    try {
+      await api.del(`/teams/${id}`);
+      setTeams(prev => prev.filter(t => t.id !== id));
+      setStock(prev => { const n = { ...prev }; delete n[id]; return n; });
+      if (selectedTeamId === id) setSelectedTeamId(null);
+      showFlash("TEAM DELETED", "success");
+    } catch (err) { showFlash(err.message || "Failed to delete team", "error"); }
   }
 
   // ── Ammo type management ──
   async function handleAddAmmoType(label, category) {
-    const newType = await api.post('/ammo-types', { label, category });
-    setAmmoTypes(prev => [...prev, newType].sort((a, b) =>
-      a.category.localeCompare(b.category) || a.label.localeCompare(b.label)));
-    setStock(prev => {
-      const next = { ...prev };
-      teams.forEach(t => { next[t.id] = { ...(next[t.id] || {}), [newType.id]: 0 }; });
-      return next;
-    });
-    if (!txAmmoId) setTxAmmoId(newType.id);
-    showFlash(`${newType.label} ADDED`, "success");
+    try {
+      const newType = await api.post('/ammo-types', { label, category });
+      setAmmoTypes(prev => [...prev, newType].sort((a, b) =>
+        a.category.localeCompare(b.category) || a.label.localeCompare(b.label)));
+      setStock(prev => {
+        const next = { ...prev };
+        teams.forEach(t => { next[t.id] = { ...(next[t.id] || {}), [newType.id]: 0 }; });
+        return next;
+      });
+      if (!txAmmoId) setTxAmmoId(newType.id);
+      showFlash(`${newType.label} ADDED`, "success");
+    } catch (err) { showFlash(err.message || "Failed to add ammo type", "error"); throw err; }
   }
 
   async function handleDeleteAmmoType(id) {
-    await api.del(`/ammo-types/${id}`);
-    setAmmoTypes(prev => prev.filter(a => a.id !== id));
-    setStock(prev => {
-      const next = {};
-      teams.forEach(t => { const s = { ...(prev[t.id] || {}) }; delete s[id]; next[t.id] = s; });
-      return next;
-    });
-    if (txAmmoId === id) {
-      const rem = ammoTypes.filter(a => a.id !== id);
-      setTxAmmoId(rem.length ? rem[0].id : "");
-    }
-    showFlash("AMMO TYPE REMOVED", "success");
+    try {
+      await api.del(`/ammo-types/${id}`);
+      setAmmoTypes(prev => prev.filter(a => a.id !== id));
+      setStock(prev => {
+        const next = {};
+        teams.forEach(t => { const s = { ...(prev[t.id] || {}) }; delete s[id]; next[t.id] = s; });
+        return next;
+      });
+      if (txAmmoId === id) {
+        const rem = ammoTypes.filter(a => a.id !== id);
+        setTxAmmoId(rem.length ? rem[0].id : "");
+      }
+      showFlash("AMMO TYPE REMOVED", "success");
+    } catch (err) { showFlash(err.message || "Failed to delete ammo type", "error"); }
   }
 
   // ── Transactions ──
@@ -516,7 +528,7 @@ function RoleSelect({ batteries, teams, onSelectBN, onSelectTeam }) {
 // ─── BN DASHBOARD ─────────────────────────────────────────────────────────────
 function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batteryTotals, maxPerTeam, activeTab, setActiveTab, onLogout, onAddBattery, onDeleteBattery, onAddTeam, onDeleteTeam, onAddAmmoType, onDeleteAmmoType }) {
   const isMobile = useIsMobile();
-  const TABS = ["DASHBOARD", "BATTERIES", "TRANSACTIONS", "ANALYTICS", "AMMO TYPES", "UNITS"];
+  const TABS = ["UNITS", "AMMO TYPES", "DASHBOARD", "BATTERIES", "TRANSACTIONS", "ANALYTICS"];
 
   const barData = ammoTypes.map(a => {
     const row = { name: a.id };
@@ -788,7 +800,7 @@ function UnitsManager({ batteries, teams, onAddBattery, onDeleteBattery, onAddTe
                     <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>ID: {b.id} · {b.callsign} · {bTeams.length} team{bTeams.length !== 1 ? "s" : ""}</div>
                   </div>
                   <button
-                    onClick={() => onDeleteBattery(b.id)}
+                    onClick={async () => { try { await onDeleteBattery(b.id); } catch (_) {} }}
                     title="Delete battery and all its teams"
                     style={{ padding: "4px 10px", background: "#ef444415", color: "#ef4444", border: "1px solid #ef444440", borderRadius: 3, cursor: "pointer", fontSize: 11, fontWeight: "bold", flexShrink: 0 }}
                   >✕ DEL</button>
@@ -805,7 +817,7 @@ function UnitsManager({ batteries, teams, onAddBattery, onDeleteBattery, onAddTe
                           <div style={{ fontSize: 10, color: "#64748b" }}>{t.callsign}</div>
                         </div>
                         <button
-                          onClick={() => onDeleteTeam(t.id)}
+                          onClick={async () => { try { await onDeleteTeam(t.id); } catch (_) {} }}
                           style={{ padding: "3px 10px", background: "#ef444415", color: "#ef4444", border: "1px solid #ef444440", borderRadius: 3, cursor: "pointer", fontSize: 11, fontWeight: "bold" }}
                         >✕</button>
                       </div>
@@ -878,7 +890,7 @@ function AmmoTypeManager({ ammoTypes, onAdd, onDelete, isMobile }) {
                 : grouped[cat].map(a => (
                   <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #334155" }}>
                     <span style={{ fontSize: 13, color: "#e2e8f0" }}>{a.label}</span>
-                    <button onClick={() => onDelete(a.id)} style={{ padding: "3px 10px", background: "#ef444415", color: "#ef4444", border: "1px solid #ef444440", borderRadius: 3, cursor: "pointer", fontSize: 11, fontWeight: "bold" }}>✕</button>
+                    <button onClick={async () => { try { await onDelete(a.id); } catch (_) {} }} style={{ padding: "3px 10px", background: "#ef444415", color: "#ef4444", border: "1px solid #ef444440", borderRadius: 3, cursor: "pointer", fontSize: 11, fontWeight: "bold" }}>✕</button>
                   </div>
                 ))
               }
