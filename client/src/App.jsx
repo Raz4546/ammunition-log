@@ -1726,6 +1726,152 @@ function SummaryTab({ batteries, teams, ammoTypes, log, isMobile, recipients, on
   );
 }
 
+// ─── DB RESET MODAL ───────────────────────────────────────────────────────────
+const DB_COLLECTIONS = [
+  { id: "batteries",    label: "Batteries",              icon: "🏛️" },
+  { id: "teams",        label: "Teams",                  icon: "⚡" },
+  { id: "ammoTypes",    label: "Ammo Types",             icon: "⚙️" },
+  { id: "ammunition",   label: "Stock (Ammunition)",     icon: "📦" },
+  { id: "transactions", label: "Transaction Log",        icon: "📋" },
+];
+
+function DbResetModal({ isMobile, onClose }) {
+  const [mode,     setMode]     = useState(null);      // null | "partial" | "full"
+  const [selected, setSelected] = useState([]);
+  const [password, setPassword] = useState("");
+  const [busy,     setBusy]     = useState(false);
+  const [error,    setError]    = useState(null);
+  const [done,     setDone]     = useState(null);
+
+  function toggleCol(id) {
+    setSelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  }
+
+  async function handleErase() {
+    if (!password) { setError("Enter password"); return; }
+    setBusy(true); setError(null);
+    try {
+      const path  = mode === "full" ? "/reset/full" : "/reset/partial";
+      const body  = mode === "full" ? { password } : { password, collections: selected };
+      const result = await api.post(path, body);
+      setDone(result.deleted);
+    } catch (e) {
+      setError(e.message || "Failed");
+    }
+    setBusy(false);
+  }
+
+  const canErase = mode === "full"
+    ? password.length > 0
+    : selected.length > 0 && password.length > 0;
+
+  // Overlay
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#00000099", zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: "#0f172a", border: "2px solid #ef4444", borderRadius: 8, width: "100%", maxWidth: 520, padding: isMobile ? 20 : 28, maxHeight: "90vh", overflowY: "auto" }}>
+
+        {done ? (
+          /* ── Done screen ── */
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 44, marginBottom: 12 }}>✅</div>
+            <div style={{ fontSize: 18, fontWeight: "bold", marginBottom: 14 }}>DATABASE ERASED</div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 20 }}>
+              {Object.entries(done).map(([k, n]) => (
+                <div key={k}>{DB_COLLECTIONS.find(c => c.id === k)?.icon} {DB_COLLECTIONS.find(c => c.id === k)?.label}: <strong style={{ color: "#ef4444" }}>{n} records deleted</strong></div>
+              ))}
+            </div>
+            <button onClick={onClose} style={{ padding: "10px 32px", background: "#38bdf8", color: "#000", border: "none", borderRadius: 4, fontWeight: "bold", cursor: "pointer", fontSize: 13 }}>CLOSE</button>
+          </div>
+        ) : mode === null ? (
+          /* ── Mode selection screen ── */
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontSize: 15, fontWeight: "bold", color: "#ef4444" }}>🗑️ RESET DATABASE</div>
+              <button onClick={onClose} style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 18 }}>✕</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <button onClick={() => setMode("partial")}
+                style={{ padding: "22px 16px", background: "#1e293b", border: "2px solid #facc15", borderRadius: 6, cursor: "pointer", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                <div style={{ fontSize: 30 }}>🗂️</div>
+                <div style={{ fontSize: 13, fontWeight: "bold", color: "#facc15" }}>PARTIAL ERASE</div>
+                <div style={{ fontSize: 11, color: "#94a3b8" }}>Choose which data to delete</div>
+              </button>
+              <button onClick={() => setMode("full")}
+                style={{ padding: "22px 16px", background: "#1e293b", border: "2px solid #ef4444", borderRadius: 6, cursor: "pointer", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                <div style={{ fontSize: 30 }}>💥</div>
+                <div style={{ fontSize: 13, fontWeight: "bold", color: "#ef4444" }}>FULL DB ERASE</div>
+                <div style={{ fontSize: 11, color: "#94a3b8" }}>Wipe everything and start clean</div>
+              </button>
+            </div>
+          </>
+        ) : (
+          /* ── Erase confirmation screen ── */
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+              <button onClick={() => { setMode(null); setSelected([]); setPassword(""); setError(null); }}
+                style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>←</button>
+              <div style={{ fontSize: 14, fontWeight: "bold", color: mode === "full" ? "#ef4444" : "#facc15" }}>
+                {mode === "full" ? "💥 FULL DB ERASE" : "🗂️ PARTIAL ERASE"}
+              </div>
+            </div>
+
+            {mode === "partial" && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>Select collections to erase:</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {DB_COLLECTIONS.map(c => {
+                    const checked = selected.includes(c.id);
+                    return (
+                      <div key={c.id} onClick={() => toggleCol(c.id)}
+                        style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: checked ? "#ef444415" : "#1e293b", border: `1px solid ${checked ? "#ef4444" : "#334155"}`, borderRadius: 4, cursor: "pointer", transition: "all 0.15s", userSelect: "none" }}>
+                        <div style={{ width: 16, height: 16, border: `2px solid ${checked ? "#ef4444" : "#475569"}`, borderRadius: 3, background: checked ? "#ef4444" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 10 }}>
+                          {checked && "✓"}
+                        </div>
+                        <span style={{ fontSize: 18 }}>{c.icon}</span>
+                        <span style={{ fontSize: 13, color: checked ? "#ef4444" : "#e2e8f0", fontWeight: checked ? "bold" : "normal" }}>{c.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {mode === "full" && (
+              <div style={{ marginBottom: 20, padding: "14px 16px", background: "#ef444415", border: "1px solid #ef444440", borderRadius: 4 }}>
+                <div style={{ fontSize: 13, color: "#ef4444", fontWeight: "bold", marginBottom: 6 }}>⚠ THIS WILL DELETE ALL DATA</div>
+                <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                  {DB_COLLECTIONS.map(c => <span key={c.id} style={{ marginRight: 12 }}>{c.icon} {c.label}</span>)}
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ ...s.txLabel, color: "#ef4444" }}>🔐 ENTER PASSWORD TO CONFIRM</label>
+              <input
+                type="password"
+                placeholder="Password..."
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && canErase && handleErase()}
+                style={{ ...s.txInput, width: "100%", boxSizing: "border-box", borderColor: "#ef444455" }}
+              />
+            </div>
+
+            {error && <div style={{ marginBottom: 12, fontSize: 12, color: "#ef4444" }}>⚠ {error}</div>}
+
+            <button
+              onClick={handleErase}
+              disabled={busy || !canErase}
+              style={{ width: "100%", padding: 12, background: canErase && !busy ? "#ef4444" : "#334155", color: canErase && !busy ? "#fff" : "#64748b", border: "none", borderRadius: 4, fontWeight: "bold", fontSize: 13, cursor: canErase && !busy ? "pointer" : "default", letterSpacing: 1, transition: "all 0.2s" }}
+            >{busy ? "ERASING..." : "🗑️ ERASE"}</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── SETTINGS TAB ─────────────────────────────────────────────────────────────
 function SettingsTab({ recipients, onSaveRecipients, isMobile }) {
   const [name,   setName]   = useState("");
@@ -1733,6 +1879,7 @@ function SettingsTab({ recipients, onSaveRecipients, isMobile }) {
   const [apikey, setApikey] = useState("");
   const [testing, setTesting] = useState({});
   const [testResult, setTestResult] = useState({});
+  const [showReset, setShowReset] = useState(false);
 
   function addRecipient() {
     if (!phone.trim() || !apikey.trim()) return;
@@ -1841,6 +1988,18 @@ function SettingsTab({ recipients, onSaveRecipients, isMobile }) {
           ))}
         </div>
       )}
+
+      {/* ── Danger Zone ── */}
+      <div style={{ marginTop: 40, paddingTop: 24, borderTop: "2px solid #ef444430" }}>
+        <div style={{ fontSize: 13, fontWeight: "bold", color: "#ef4444", marginBottom: 6, letterSpacing: 1 }}>⚠ DANGER ZONE</div>
+        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>Permanently delete data from the database. This cannot be undone.</div>
+        <button
+          onClick={() => setShowReset(true)}
+          style={{ padding: "10px 24px", background: "#ef444415", color: "#ef4444", border: "2px solid #ef444460", borderRadius: 4, cursor: "pointer", fontWeight: "bold", fontSize: 13, letterSpacing: 1, transition: "all 0.2s" }}
+        >🗑️ RESET DATABASE</button>
+      </div>
+
+      {showReset && <DbResetModal isMobile={isMobile} onClose={() => setShowReset(false)} />}
     </div>
   );
 }
