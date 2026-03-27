@@ -46,6 +46,22 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Update battery red line
+router.put('/:id/redline', async (req, res) => {
+  try {
+    const { ammoIds, threshold } = req.body;
+    const battery = await Battery.findOneAndUpdate(
+      { id: req.params.id },
+      { redLine: { ammoIds: ammoIds || [], threshold: threshold || 0 } },
+      { new: true }
+    );
+    if (!battery) return res.status(404).json({ error: 'Battery not found' });
+    res.json(battery);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Delete a battery (cascades to teams + ammo)
 router.delete('/:id', async (req, res) => {
   try {

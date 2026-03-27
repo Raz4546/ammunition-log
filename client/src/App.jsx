@@ -43,6 +43,16 @@ const api = {
     if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Delete failed'); }
     return r.json();
   },
+
+  put: async (path, body) => {
+    const r = await fetch(`${API_URL}${path}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Request failed'); }
+    return r.json();
+  },
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -180,6 +190,15 @@ export default function App() {
       if (selectedTeamId === id) setSelectedTeamId(null);
       showFlash("TEAM DELETED", "success");
     } catch (err) { showFlash(err.message || "Failed to delete team", "error"); }
+  }
+
+  // ── Battery red line ──
+  async function handleUpdateRedLine(batteryId, ammoIds, threshold) {
+    try {
+      const updated = await api.put(`/batteries/${batteryId}/redline`, { ammoIds, threshold });
+      setBatteries(prev => prev.map(b => b.id === batteryId ? { ...b, redLine: updated.redLine } : b));
+      showFlash("RED LINE SAVED", "success");
+    } catch (err) { showFlash(err.message || "Failed to save red line", "error"); }
   }
 
   // ── Ammo type management ──
@@ -349,6 +368,7 @@ export default function App() {
       onAddBattery={handleAddBattery} onDeleteBattery={handleDeleteBattery}
       onAddTeam={handleAddTeam}       onDeleteTeam={handleDeleteTeam}
       onAddAmmoType={handleAddAmmoType} onDeleteAmmoType={handleDeleteAmmoType}
+      onUpdateRedLine={handleUpdateRedLine}
     />
   );
 
@@ -526,7 +546,7 @@ function RoleSelect({ batteries, teams, onSelectBN, onSelectTeam }) {
 }
 
 // ─── BN DASHBOARD ─────────────────────────────────────────────────────────────
-function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batteryTotals, maxPerTeam, activeTab, setActiveTab, onLogout, onAddBattery, onDeleteBattery, onAddTeam, onDeleteTeam, onAddAmmoType, onDeleteAmmoType }) {
+function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batteryTotals, maxPerTeam, activeTab, setActiveTab, onLogout, onAddBattery, onDeleteBattery, onAddTeam, onDeleteTeam, onAddAmmoType, onDeleteAmmoType, onUpdateRedLine }) {
   const isMobile = useIsMobile();
   const TABS = ["UNITS", "AMMO TYPES", "DASHBOARD", "BATTERIES", "TRANSACTIONS", "ANALYTICS"];
 
@@ -584,6 +604,31 @@ function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batter
                 onUnits={() => setActiveTab("units")} onAmmo={() => setActiveTab("ammo_types")} />
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fit, minmax(260px, 1fr))", gap: isMobile ? 12 : 20 }}>
+                {/* Red line alerts banner */}
+                {batteries.some(b => b.redLine?.ammoIds?.length > 0 && b.redLine?.threshold > 0 &&
+                  teams.filter(t => t.batteryId === b.id).reduce((sum, t) =>
+                    sum + b.redLine.ammoIds.reduce((s, id) => s + (stock[t.id]?.[id] || 0), 0), 0) < b.redLine.threshold
+                ) && (
+                  <div style={{ gridColumn: "1 / -1", padding: isMobile ? 12 : 16, background: "#ef444415", border: "2px solid #ef4444", borderRadius: 6 }}>
+                    <div style={{ fontSize: 13, fontWeight: "bold", color: "#ef4444", marginBottom: 10 }}>🔴 RED LINE ALERTS</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {batteries.filter(b => b.redLine?.ammoIds?.length > 0 && b.redLine?.threshold > 0).map(b => {
+                        const bTeams = teams.filter(t => t.batteryId === b.id);
+                        const rlSum = bTeams.reduce((sum, t) =>
+                          sum + b.redLine.ammoIds.reduce((s, id) => s + (stock[t.id]?.[id] || 0), 0), 0);
+                        if (rlSum >= b.redLine.threshold) return null;
+                        const rlLabels = b.redLine.ammoIds.map(id => ammoTypes.find(a => a.id === id)?.label || id).join(' + ');
+                        return (
+                          <div key={b.id} style={{ padding: "6px 12px", background: "#0f172a", border: `1px solid ${b.color}`, borderRadius: 4 }}>
+                            <span style={{ color: b.color, fontWeight: "bold", fontSize: 12 }}>{b.callsign}</span>
+                            <span style={{ color: "#94a3b8", fontSize: 11, marginLeft: 6 }}>{rlLabels}</span>
+                            <span style={{ color: "#ef4444", fontWeight: "bold", fontSize: 12, marginLeft: 6 }}>{rlSum.toLocaleString()} / {b.redLine.threshold.toLocaleString()}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {ammoTypes.map(a => {
                   const total = bnTotals[a.id] || 0;
                   const maxTotal = maxPerTeam * teams.length;
@@ -622,6 +667,19 @@ function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batter
                           <div style={{ fontSize: isMobile ? 18 : 22, fontWeight: "bold", marginBottom: 6 }}>{totalRounds.toLocaleString()} RDS</div>
                           <div style={s.progressBar}><div style={{ ...s.progressFill, width: `${pct}%`, background: b.color }} /></div>
                           <div style={{ ...s.statusBadge, marginTop: 6, background: statusColor(pct) + "22", color: statusColor(pct), border: `1px solid ${statusColor(pct)}`, fontSize: 10 }}>{statusLabel(pct)} {pct}%</div>
+                          {b.redLine?.ammoIds?.length > 0 && b.redLine?.threshold > 0 && (() => {
+                            const rlSum = bTeams.reduce((sum, t) =>
+                              sum + (b.redLine.ammoIds.reduce((s, id) => s + (stock[t.id]?.[id] || 0), 0)), 0);
+                            const below = rlSum < b.redLine.threshold;
+                            const rlLabels = b.redLine.ammoIds.map(id => ammoTypes.find(a => a.id === id)?.label || id).join(' + ');
+                            return (
+                              <div style={{ marginTop: 8, padding: "5px 7px", background: below ? "#ef444420" : "#22c55e15", border: `1px solid ${below ? "#ef4444" : "#22c55e"}`, borderRadius: 4, fontSize: 10, fontWeight: "bold" }}>
+                                <div style={{ color: below ? "#ef4444" : "#22c55e", marginBottom: 2 }}>{below ? "🔴 RED LINE BREACH" : "🟢 ABOVE RED LINE"}</div>
+                                <div style={{ color: "#94a3b8", fontWeight: "normal" }}>{rlLabels}</div>
+                                <div style={{ color: below ? "#ef4444" : "#22c55e" }}>{rlSum.toLocaleString()} / {b.redLine.threshold.toLocaleString()} RDS</div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}
@@ -721,9 +779,10 @@ function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batter
 
           {activeTab === "units" && (
             <UnitsManager
-              batteries={batteries} teams={teams}
+              batteries={batteries} teams={teams} ammoTypes={ammoTypes}
               onAddBattery={onAddBattery} onDeleteBattery={onDeleteBattery}
               onAddTeam={onAddTeam} onDeleteTeam={onDeleteTeam}
+              onUpdateRedLine={onUpdateRedLine}
               isMobile={isMobile}
             />
           )}
@@ -734,10 +793,32 @@ function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batter
 }
 
 // ─── UNITS MANAGER ────────────────────────────────────────────────────────────
-function UnitsManager({ batteries, teams, onAddBattery, onDeleteBattery, onAddTeam, onDeleteTeam, isMobile }) {
+function UnitsManager({ batteries, teams, ammoTypes, onAddBattery, onDeleteBattery, onAddTeam, onDeleteTeam, onUpdateRedLine, isMobile }) {
   const [newBatName, setNewBatName] = useState("");
   const [newTeamNames, setNewTeamNames] = useState({}); // { batteryId: string }
   const [busy, setBusy] = useState(false);
+  const [redLineEdit, setRedLineEdit] = useState({}); // { batteryId: { ammoIds, threshold } }
+  const [rlBusy, setRlBusy] = useState({});
+
+  function getRl(batteryId) {
+    if (redLineEdit[batteryId] !== undefined) return redLineEdit[batteryId];
+    const b = batteries.find(x => x.id === batteryId);
+    return { ammoIds: b?.redLine?.ammoIds || [], threshold: b?.redLine?.threshold || "" };
+  }
+
+  function setRl(batteryId, val) {
+    setRedLineEdit(p => ({ ...p, [batteryId]: val }));
+  }
+
+  async function saveRl(batteryId) {
+    const rl = getRl(batteryId);
+    const threshold = parseInt(rl.threshold, 10);
+    if (!rl.ammoIds.length || isNaN(threshold) || threshold <= 0) return;
+    setRlBusy(p => ({ ...p, [batteryId]: true }));
+    try { await onUpdateRedLine(batteryId, rl.ammoIds, threshold); }
+    catch (_) {}
+    setRlBusy(p => ({ ...p, [batteryId]: false }));
+  }
 
   async function handleAddBattery() {
     if (!newBatName.trim()) return;
@@ -840,6 +921,60 @@ function UnitsManager({ batteries, teams, onAddBattery, onDeleteBattery, onAddTe
                     style={{ padding: "7px 12px", background: (newTeamNames[b.id] || "").trim() ? b.color : "#334155", color: (newTeamNames[b.id] || "").trim() ? "#000" : "#64748b", border: "none", borderRadius: 4, cursor: (newTeamNames[b.id] || "").trim() ? "pointer" : "default", fontSize: 12, fontWeight: "bold", whiteSpace: "nowrap", transition: "all 0.2s" }}
                   >+ TEAM</button>
                 </div>
+
+                {/* Red Line Configuration */}
+                {ammoTypes.length > 0 && (
+                  <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #334155" }}>
+                    <div style={{ fontSize: 11, color: "#ef4444", fontWeight: "bold", letterSpacing: 1, marginBottom: 6 }}>🔴 RED LINE THRESHOLD</div>
+                    <div style={{ fontSize: 11, color: "#64748b", marginBottom: 10, lineHeight: 1.5 }}>
+                      Select ammo types to monitor. Alert when combined battery total falls below the threshold.
+                    </div>
+                    {/* Ammo type toggles */}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                      {ammoTypes.map(a => {
+                        const rl = getRl(b.id);
+                        const checked = rl.ammoIds.includes(a.id);
+                        const col = catColor(a);
+                        return (
+                          <div
+                            key={a.id}
+                            onClick={() => {
+                              const cur = getRl(b.id);
+                              const newIds = checked
+                                ? cur.ammoIds.filter(x => x !== a.id)
+                                : [...cur.ammoIds, a.id];
+                              setRl(b.id, { ...cur, ammoIds: newIds });
+                            }}
+                            style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, cursor: "pointer", padding: "4px 9px", border: `1px solid ${checked ? col : "#334155"}`, borderRadius: 4, background: checked ? col + "22" : "transparent", color: checked ? col : "#64748b", userSelect: "none", transition: "all 0.15s" }}
+                          >
+                            {catIcon(a)} {a.label}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Threshold + save */}
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="Min rounds..."
+                        value={getRl(b.id).threshold}
+                        onChange={e => setRl(b.id, { ...getRl(b.id), threshold: e.target.value })}
+                        style={{ flex: 1, padding: "6px 10px", background: "#0f172a", border: "1px solid #ef444455", color: "#fff", borderRadius: 4, fontSize: 12 }}
+                      />
+                      <button
+                        onClick={() => saveRl(b.id)}
+                        disabled={rlBusy[b.id] || !getRl(b.id).ammoIds.length || !getRl(b.id).threshold}
+                        style={{ padding: "6px 14px", background: (!getRl(b.id).ammoIds.length || !getRl(b.id).threshold) ? "#334155" : "#ef4444", color: (!getRl(b.id).ammoIds.length || !getRl(b.id).threshold) ? "#64748b" : "#fff", border: "none", borderRadius: 4, fontSize: 11, fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.2s" }}
+                      >{rlBusy[b.id] ? "..." : "SAVE"}</button>
+                    </div>
+                    {b.redLine?.ammoIds?.length > 0 && b.redLine?.threshold > 0 && (
+                      <div style={{ marginTop: 8, fontSize: 10, color: "#64748b" }}>
+                        Active: {b.redLine.ammoIds.map(id => ammoTypes.find(a => a.id === id)?.label || id).join(' + ')} ≥ {b.redLine.threshold} RDS
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
