@@ -548,7 +548,7 @@ function RoleSelect({ batteries, teams, onSelectBN, onSelectTeam }) {
 // ─── BN DASHBOARD ─────────────────────────────────────────────────────────────
 function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batteryTotals, maxPerTeam, activeTab, setActiveTab, onLogout, onAddBattery, onDeleteBattery, onAddTeam, onDeleteTeam, onAddAmmoType, onDeleteAmmoType, onSetRedLines }) {
   const isMobile = useIsMobile();
-  const TABS = ["UNITS", "AMMO TYPES", "DASHBOARD", "BATTERIES", "TRANSACTIONS", "ANALYTICS"];
+  const TABS = ["UNITS", "AMMO TYPES", "DASHBOARD", "BATTERIES", "SUMMARY", "TRANSACTIONS", "ANALYTICS"];
 
   const barData = ammoTypes.map(a => {
     const row = { name: a.id };
@@ -771,6 +771,10 @@ function BNDashboard({ batteries, teams, ammoTypes, stock, log, bnTotals, batter
               <div style={{ fontSize: isMobile ? 13 : 15, fontWeight: "bold", marginBottom: 14 }}>📋 ALL TRANSACTIONS</div>
               <LogTable log={log} isMobile={isMobile} showTeam />
             </div>
+          )}
+
+          {activeTab === "summary" && (
+            <SummaryTab batteries={batteries} teams={teams} ammoTypes={ammoTypes} log={log} isMobile={isMobile} />
           )}
 
           {activeTab === "analytics" && (
@@ -1441,6 +1445,212 @@ function AmmunitionTab({ ammoTypes, stock, log, txAmmoId, setTxAmmoId, txQty, se
         </div>
         <LogTable log={log} isMobile={isMobile} />
       </div>
+    </div>
+  );
+}
+
+// ─── SUMMARY TAB ──────────────────────────────────────────────────────────────
+function SummaryTab({ batteries, teams, ammoTypes, log, isMobile }) {
+  const now = new Date();
+  const yesterday = new Date(now - 24 * 60 * 60 * 1000);
+  const fmt = d => d.toISOString().slice(0, 16);
+
+  const [start, setStart] = useState(fmt(yesterday));
+  const [end,   setEnd]   = useState(fmt(now));
+  const [copied, setCopied] = useState(false);
+
+  const startMs = new Date(start).getTime();
+  const endMs   = new Date(end).getTime();
+
+  const filteredLog = log.filter(e => {
+    const t = new Date(e.timestamp).getTime();
+    return t >= startMs && t <= endMs;
+  });
+
+  function fmtDT(ts) {
+    return new Date(ts).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+
+  function groupFMs(entries) {
+    const fmEntries = entries.filter(e => e.note?.startsWith('FM:') && e.type === 'SUB');
+    const missions = [];
+    fmEntries.forEach(entry => {
+      const name = entry.note.slice(3);
+      const t = new Date(entry.timestamp).getTime();
+      const m = missions.find(x => x.name === name && Math.abs(new Date(x.time).getTime() - t) <= 30000);
+      if (m) m.items.push(entry);
+      else missions.push({ name, time: entry.timestamp, items: [entry] });
+    });
+    return missions;
+  }
+
+  const batteryData = batteries.map(b => {
+    const bTeams = teams.filter(t => t.batteryId === b.id);
+    const bLog   = filteredLog.filter(e => bTeams.some(t => t.id === e.teamId));
+    const fms    = groupFMs(bLog);
+    const other  = bLog.filter(e => !e.note?.startsWith('FM:'));
+    const netChanges = ammoTypes.map(a => {
+      const net = bLog.reduce((sum, e) => sum + (e.ammoId === a.id ? (e.type === 'ADD' ? e.quantity : -e.quantity) : 0), 0);
+      return { ...a, net };
+    }).filter(a => a.net !== 0);
+    return { b, bLog, fms, other, netChanges };
+  }).filter(({ bLog }) => bLog.length > 0);
+
+  function generateText() {
+    const fmtFull = d => new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+    let t = "══════════════════════════════════════════\n";
+    t += "        AMMUNITION SUMMARY REPORT\n";
+    t += "══════════════════════════════════════════\n";
+    t += `From     : ${fmtFull(start)}\n`;
+    t += `To       : ${fmtFull(end)}\n`;
+    t += `Generated: ${fmtFull(new Date())}\n`;
+    t += `Total txs: ${filteredLog.length}\n\n`;
+
+    if (batteryData.length === 0) {
+      t += "No transactions in selected period.\n";
+      return t;
+    }
+
+    batteryData.forEach(({ b, fms, other, netChanges }) => {
+      t += `──────────────────────────────────────────\n`;
+      t += ` ${b.name.toUpperCase()}  /  ${b.callsign}\n`;
+      t += `──────────────────────────────────────────\n`;
+
+      if (fms.length) {
+        t += "\n  FIRE MISSIONS:\n";
+        fms.forEach(fm => {
+          t += `    ▸ ${fm.name}  [${fmtDT(fm.time)}]\n`;
+          fm.items.forEach(item => {
+            t += `        -${item.quantity} ${item.ammoLabel || item.ammoId}  (${item.teamName || item.teamId})\n`;
+          });
+        });
+      }
+
+      if (other.length) {
+        t += "\n  TRANSACTIONS:\n";
+        other.forEach(e => {
+          const sign = e.type === 'ADD' ? '+' : '-';
+          const note = e.note ? `  [${e.note}]` : '';
+          t += `    ${sign}${e.quantity} ${e.ammoLabel || e.ammoId}  ${e.type}  ${e.teamName || e.teamId}  ${fmtDT(e.timestamp)}${note}\n`;
+        });
+      }
+
+      if (netChanges.length) {
+        t += "\n  NET CHANGE:\n";
+        netChanges.forEach(a => {
+          t += `    ${a.label}: ${a.net > 0 ? '+' : ''}${a.net} rds\n`;
+        });
+      }
+      t += "\n";
+    });
+    return t;
+  }
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(generateText());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (_) {}
+  }
+
+  return (
+    <div>
+      {/* Controls */}
+      <div style={{ ...s.sectionCard, marginBottom: 20, display: "flex", flexDirection: isMobile ? "column" : "row", gap: 12, alignItems: isMobile ? "stretch" : "flex-end" }}>
+        <div style={{ flex: 1 }}>
+          <label style={{ ...s.txLabel }}>FROM</label>
+          <input type="datetime-local" value={start} onChange={e => setStart(e.target.value)}
+            style={{ ...s.txInput, width: "100%", boxSizing: "border-box" }} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={{ ...s.txLabel }}>TO</label>
+          <input type="datetime-local" value={end} onChange={e => setEnd(e.target.value)}
+            style={{ ...s.txInput, width: "100%", boxSizing: "border-box" }} />
+        </div>
+        <button onClick={handleCopy} style={{ padding: isMobile ? "10px 16px" : "10px 24px", background: copied ? "#4ade80" : "#38bdf8", color: "#000", border: "none", borderRadius: 4, fontWeight: "bold", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.2s", flexShrink: 0 }}>
+          {copied ? "✓ COPIED!" : "📋 COPY TEXT"}
+        </button>
+      </div>
+
+      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>
+        {filteredLog.length} transaction{filteredLog.length !== 1 ? "s" : ""} in period
+      </div>
+
+      {batteryData.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: "#475569", fontSize: 14 }}>
+          No transactions found in the selected time period.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {batteryData.map(({ b, fms, other, netChanges }) => (
+            <div key={b.id} style={{ ...s.sectionCard, border: `2px solid ${b.color}`, padding: isMobile ? 14 : 20 }}>
+              {/* Battery header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, paddingBottom: 12, borderBottom: `1px solid ${b.color}40`, flexWrap: "wrap", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: "bold", color: b.color }}>{b.name} <span style={{ fontSize: 11, color: "#64748b" }}>/ {b.callsign}</span></div>
+                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{fms.length} fire mission{fms.length !== 1 ? "s" : ""}  ·  {other.length} transaction{other.length !== 1 ? "s" : ""}</div>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {netChanges.map(a => (
+                    <div key={a.id} style={{ padding: "3px 8px", background: a.net > 0 ? "#4ade8020" : "#ef444420", border: `1px solid ${a.net > 0 ? "#4ade80" : "#ef4444"}`, borderRadius: 3, fontSize: 11, fontWeight: "bold", color: a.net > 0 ? "#4ade80" : "#ef4444" }}>
+                      {a.net > 0 ? "+" : ""}{a.net} {a.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : (fms.length && other.length ? "1fr 1fr" : "1fr"), gap: 16 }}>
+                {/* Fire missions */}
+                {fms.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: "bold", color: "#ef4444", marginBottom: 10 }}>🎯 FIRE MISSIONS ({fms.length})</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {fms.map((fm, i) => (
+                        <div key={i} style={{ padding: "8px 10px", background: "#0f172a", borderRadius: 4, border: "1px solid #334155" }}>
+                          <div style={{ fontSize: 12, fontWeight: "bold", marginBottom: 6 }}>
+                            {fm.name}
+                            <span style={{ fontSize: 10, color: "#64748b", fontWeight: "normal", marginLeft: 8 }}>{fmtDT(fm.time)}</span>
+                          </div>
+                          {fm.items.map((item, j) => (
+                            <div key={j} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#ef4444", padding: "1px 0" }}>
+                              <span style={{ color: "#94a3b8" }}>{item.ammoLabel || item.ammoId}</span>
+                              <span style={{ fontWeight: "bold" }}>-{item.quantity} rds</span>
+                            </div>
+                          ))}
+                          <div style={{ fontSize: 10, color: "#475569", marginTop: 5 }}>
+                            {[...new Set(fm.items.map(x => x.teamName || x.teamId))].join(', ')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Other transactions */}
+                {other.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: "bold", color: "#38bdf8", marginBottom: 10 }}>📦 TRANSACTIONS ({other.length})</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      {other.map((e, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 8px", background: "#0f172a", borderRadius: 3, gap: 8 }}>
+                          <div style={{ fontSize: 11, minWidth: 0 }}>
+                            <span style={{ color: e.type === 'ADD' ? "#4ade80" : "#ef4444", fontWeight: "bold" }}>{e.type === 'ADD' ? '+' : '-'}{e.quantity}</span>
+                            <span style={{ color: "#cbd5e1", marginLeft: 5 }}>{e.ammoLabel || e.ammoId}</span>
+                            {e.note && <span style={{ color: "#475569", marginLeft: 5, fontSize: 10 }}>· {e.note}</span>}
+                            <div style={{ fontSize: 10, color: "#475569" }}>{e.teamName || e.teamId}</div>
+                          </div>
+                          <span style={{ fontSize: 10, color: "#475569", flexShrink: 0 }}>{fmtDT(e.timestamp)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
