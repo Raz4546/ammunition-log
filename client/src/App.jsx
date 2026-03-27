@@ -23,6 +23,17 @@ const BATTERIES = [
   { id: "D", name: "Battery Delta",   callsign: "DELTA-6",  color: "#f472b6" },
 ];
 
+// ─── HOOKS ────────────────────────────────────────────────────────────────────
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return isMobile;
+}
+
 // ─── API CALLS ───────────────────────────────────────────────────────────────
 async function fetchAmmunition() {
   try {
@@ -126,7 +137,7 @@ export default function App() {
   async function submitTx() {
     const qty = parseInt(txQty, 10);
     if (!qty || qty <= 0) return showFlash("INVALID QTY", "error");
-    
+
     const bty = selectedBattery;
     const current = stock[bty][txAmmoId];
     if (txType === "SUB" && current < qty) return showFlash("INSUFFICIENT ROUNDS", "error");
@@ -277,40 +288,51 @@ const s = {
   logTable: { marginTop: 16, fontSize: 12 },
   logRow: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, padding: "8px 0", borderBottom: "1px solid #334155", alignItems: "center" },
   logHeader: { fontWeight: "bold", color: "#94a3b8", fontSize: 11 },
-  flashBar: { position: "fixed", bottom: 20, right: 20, padding: "12px 20px", borderRadius: 4, fontWeight: "bold", fontSize: 13, animation: "slideIn 0.3s" }
+  flashBar: { position: "fixed", bottom: 20, right: 20, padding: "12px 20px", borderRadius: 4, fontWeight: "bold", fontSize: 13, animation: "slideIn 0.3s", zIndex: 9999 }
 };
 
 // ─── ROLE SELECT ──────────────────────────────────────────────────────────────
 function RoleSelect({ onSelect }) {
+  const isMobile = useIsMobile();
   return (
     <div style={s.screen}>
       <div style={s.roleWrap}>
-        <div style={s.roleHeader}>
-          <div style={s.roleIcon}>🎯</div>
-          <div style={s.roleTitle}>ARTY AMMO TRACKER</div>
-          <div style={s.roleSubtitle}>BATTALION AMMUNITION MANAGEMENT SYSTEM</div>
+        <div style={{
+          ...s.roleHeader,
+          padding: isMobile ? "32px 20px 24px" : "60px 40px 40px",
+        }}>
+          <div style={{...s.roleIcon, fontSize: isMobile ? 44 : 64, marginBottom: isMobile ? 16 : 24}}>🎯</div>
+          <div style={{...s.roleTitle, fontSize: isMobile ? 26 : 48, letterSpacing: isMobile ? 2 : 3}}>ARTY AMMO TRACKER</div>
+          <div style={{...s.roleSubtitle, fontSize: isMobile ? 11 : 14}}>BATTALION AMMUNITION MANAGEMENT SYSTEM</div>
           <div style={s.roleDivider} />
           <div style={s.roleClassified}>SELECT AUTHENTICATION LEVEL</div>
         </div>
-        <div style={s.roleCards}>
-          <button style={{...s.roleCard, borderColor:"#e85d04"}} onClick={() => onSelect("BN")}>
+        <div style={{
+          ...s.roleCards,
+          gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+          padding: isMobile ? "20px 16px" : "40px",
+          gap: isMobile ? 16 : 24,
+          width: "100%",
+          maxWidth: isMobile ? "100%" : "900px",
+        }}>
+          <button style={{...s.roleCard, borderColor:"#e85d04", padding: isMobile ? 20 : 32}} onClick={() => onSelect("BN")}>
             <div style={{...s.roleCardBadge, background:"#e85d04"}}>BN CDR</div>
-            <div style={s.roleCardIcon}>🏛️</div>
-            <div style={s.roleCardName}>BATTALION COMMANDER</div>
-            <div style={s.roleCardDesc}>Full situational awareness dashboard — view all battery stocks, transaction history, and ammo status reports across the battalion.</div>
+            <div style={{...s.roleCardIcon, fontSize: isMobile ? 40 : 56}}>🏛️</div>
+            <div style={{...s.roleCardName, fontSize: isMobile ? 17 : 20}}>BATTALION COMMANDER</div>
+            <div style={{...s.roleCardDesc, fontSize: isMobile ? 12 : 13}}>Full situational awareness dashboard — view all battery stocks, transaction history, and ammo status reports across the battalion.</div>
             <div style={{...s.roleCardEnter, color:"#e85d04"}}>ENTER COMMAND →</div>
           </button>
-          <button style={{...s.roleCard, borderColor:"#38bdf8"}} onClick={() => onSelect("BTY")}>
+          <button style={{...s.roleCard, borderColor:"#38bdf8", padding: isMobile ? 20 : 32}} onClick={() => onSelect("BTY")}>
             <div style={{...s.roleCardBadge, background:"#38bdf8", color:"#0f172a"}}>BTY CDR</div>
-            <div style={s.roleCardIcon}>⚡</div>
-            <div style={s.roleCardName}>BATTERY COMMANDER</div>
-            <div style={s.roleCardDesc}>Manage ammunition transactions for your battery — log resupply, expenditures, and transfers with real-time updates to HQ.</div>
+            <div style={{...s.roleCardIcon, fontSize: isMobile ? 40 : 56}}>⚡</div>
+            <div style={{...s.roleCardName, fontSize: isMobile ? 17 : 20}}>BATTERY COMMANDER</div>
+            <div style={{...s.roleCardDesc, fontSize: isMobile ? 12 : 13}}>Manage ammunition transactions for your battery — log resupply, expenditures, and transfers with real-time updates to HQ.</div>
             <div style={{...s.roleCardEnter, color:"#38bdf8"}}>ENTER COMMAND →</div>
           </button>
         </div>
-        <div style={s.roleFooter}>
+        <div style={{...s.roleFooter, padding: isMobile ? "16px 20px" : "20px 40px", gap: 8, flexWrap: "wrap", justifyContent: "center"}}>
           <span style={{color:"#4ade80"}}>● SYSTEM ONLINE</span>
-          <span style={{color:"#6b7280", marginLeft:16}}>v2.4 // SECURE CHANNEL</span>
+          <span style={{color:"#6b7280", marginLeft: isMobile ? 8 : 16}}>v2.4 // SECURE CHANNEL</span>
         </div>
       </div>
     </div>
@@ -319,6 +341,7 @@ function RoleSelect({ onSelect }) {
 
 // ─── BN DASHBOARD ─────────────────────────────────────────────────────────────
 function BNDashboard({ stock, log, bnTotals, maxPerBty, activeTab, setActiveTab, onLogout }) {
+  const isMobile = useIsMobile();
   const tabs = ["DASHBOARD", "BATTERIES", "TRANSACTIONS", "ANALYTICS"];
 
   const barData = AMMO_TYPES.map(a => {
@@ -330,103 +353,136 @@ function BNDashboard({ stock, log, bnTotals, maxPerBty, activeTab, setActiveTab,
   return (
     <div style={s.screen}>
       <div style={s.bnWrap}>
-        <div style={s.bnHeader}>
-          <div style={s.bnHeaderLeft}>
-            <div style={s.bnHeaderIcon}>🏛️</div>
+        <div style={{
+          ...s.bnHeader,
+          padding: isMobile ? "12px 16px" : "20px 32px",
+          gap: isMobile ? 8 : 0,
+        }}>
+          <div style={{...s.bnHeaderLeft, gap: isMobile ? 10 : 16}}>
+            <div style={{...s.bnHeaderIcon, fontSize: isMobile ? 24 : 32}}>🏛️</div>
             <div>
-              <div style={s.bnHeaderTitle}>BATTALION COMMAND</div>
-              <div style={s.bnHeaderSub}>AMMUNITION STATUS BOARD // {ts()}</div>
+              <div style={{...s.bnHeaderTitle, fontSize: isMobile ? 16 : 24}}>BATTALION COMMAND</div>
+              {!isMobile && <div style={s.bnHeaderSub}>AMMUNITION STATUS BOARD // {ts()}</div>}
             </div>
           </div>
-          <div style={s.bnHeaderRight}>
-            <div style={s.liveTag}>● LIVE</div>
-            <button style={s.logoutBtn} onClick={onLogout}>LOGOUT</button>
+          <div style={{...s.bnHeaderRight, gap: isMobile ? 8 : 16}}>
+            <div style={{...s.liveTag, padding: isMobile ? "3px 8px" : "4px 12px", fontSize: 10}}>● LIVE</div>
+            <button style={{...s.logoutBtn, padding: isMobile ? "6px 10px" : "8px 16px", fontSize: isMobile ? 10 : 12}} onClick={onLogout}>LOGOUT</button>
           </div>
         </div>
 
-        <div style={s.tabs}>
+        <div style={{
+          ...s.tabs,
+          paddingLeft: isMobile ? 4 : 32,
+          overflowX: "auto",
+          overflowY: "hidden",
+          WebkitOverflowScrolling: "touch",
+          scrollbarWidth: "none",
+          msOverflowStyle: "none",
+        }}>
           {tabs.map(t => (
-            <button key={t} style={{...s.tab, ...(activeTab===t.toLowerCase()?s.tabActive:{})}}
+            <button key={t} style={{
+              ...s.tab,
+              ...(activeTab===t.toLowerCase() ? s.tabActive : {}),
+              padding: isMobile ? "10px 14px" : "12px 24px",
+              fontSize: isMobile ? 10 : 12,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
               onClick={() => setActiveTab(t.toLowerCase())}>{t}</button>
           ))}
         </div>
 
-        <div style={s.bnBody}>
+        <div style={{...s.bnBody, padding: isMobile ? 12 : 32}}>
           {activeTab === "dashboard" && (
-            <div style={s.dashGrid}>
+            <div style={{
+              ...s.dashGrid,
+              gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: isMobile ? 12 : 20,
+            }}>
               {AMMO_TYPES.map(a => {
                 const total = bnTotals[a.id] || 0;
                 const maxTotal = maxPerBty * BATTERIES.length;
                 const pct = Math.round((total / maxTotal) * 100);
                 return (
-                  <div key={a.id} style={{...s.ammoCard, borderColor: a.color}}>
+                  <div key={a.id} style={{...s.ammoCard, borderColor: a.color, padding: isMobile ? 14 : 24}}>
                     <div style={s.ammoCardTop}>
-                      <span style={{fontSize:22}}>{a.icon}</span>
-                      <span style={{...s.statusBadge, background: statusColor(pct)+"22", color: statusColor(pct), border: `1px solid ${statusColor(pct)}`}}>
+                      <span style={{fontSize: isMobile ? 18 : 22}}>{a.icon}</span>
+                      <span style={{...s.statusBadge, background: statusColor(pct)+"22", color: statusColor(pct), border: `1px solid ${statusColor(pct)}`, fontSize: isMobile ? 9 : 11}}>
                         {statusLabel(pct)}
                       </span>
                     </div>
-                    <div style={s.ammoCardLabel}>{a.label}</div>
-                    <div style={{...s.ammoCardQty, color: a.color}}>{total.toLocaleString()}</div>
-                    <div style={s.ammoCardUnit}>ROUNDS TOTAL</div>
+                    <div style={{...s.ammoCardLabel, fontSize: isMobile ? 11 : 14}}>{a.label}</div>
+                    <div style={{...s.ammoCardQty, color: a.color, fontSize: isMobile ? 22 : 32}}>{total.toLocaleString()}</div>
+                    <div style={s.ammoCardUnit}>ROUNDS</div>
                     <div style={s.progressBar}>
                       <div style={{...s.progressFill, width:`${pct}%`, background: a.color}} />
                     </div>
-                    <div style={s.progressPct}>{pct}% OF CAPACITY</div>
+                    <div style={s.progressPct}>{pct}%</div>
                   </div>
                 );
               })}
 
-              <div style={{...s.fullRow, ...s.sectionCard}}>
-                <div style={s.sectionTitle}>⚡ BATTERY STATUS OVERVIEW</div>
-                <div style={s.btyStatusGrid}>
+              <div style={{...s.fullRow, ...s.sectionCard, padding: isMobile ? 14 : 24}}>
+                <div style={{...s.sectionTitle, fontSize: isMobile ? 13 : 16}}>⚡ BATTERY STATUS OVERVIEW</div>
+                <div style={{
+                  ...s.btyStatusGrid,
+                  gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fit, minmax(200px, 1fr))",
+                  gap: isMobile ? 10 : 16,
+                }}>
                   {BATTERIES.map(b => {
                     const totalRounds = AMMO_TYPES.reduce((sum, a) => sum + (stock[b.id]?.[a.id] || 0), 0);
                     const maxRounds = AMMO_TYPES.length * maxPerBty;
                     const pct = Math.round((totalRounds / maxRounds) * 100);
                     const recent = log.filter(l => l.batteryId === b.id).slice(0, 1)[0];
                     return (
-                      <div key={b.id} style={{...s.btyStatusCard, borderColor: b.color}}>
-                        <div style={{...s.btyCallsign, color: b.color}}>{b.callsign}</div>
-                        <div style={s.btyName}>{b.name}</div>
-                        <div style={{...s.btyTotal}}>{totalRounds.toLocaleString()} RDS</div>
+                      <div key={b.id} style={{...s.btyStatusCard, borderColor: b.color, padding: isMobile ? 12 : 16}}>
+                        <div style={{...s.btyCallsign, color: b.color, fontSize: isMobile ? 12 : 14}}>{b.callsign}</div>
+                        <div style={{...s.btyName, fontSize: isMobile ? 10 : 12}}>{b.name}</div>
+                        <div style={{...s.btyTotal, fontSize: isMobile ? 16 : 20}}>{totalRounds.toLocaleString()} RDS</div>
                         <div style={s.progressBar}>
                           <div style={{...s.progressFill, width:`${pct}%`, background: b.color}} />
                         </div>
-                        <div style={{...s.statusBadge, marginTop:8, background: statusColor(pct)+"22", color: statusColor(pct), border: `1px solid ${statusColor(pct)}`}}>
+                        <div style={{...s.statusBadge, marginTop:8, background: statusColor(pct)+"22", color: statusColor(pct), border: `1px solid ${statusColor(pct)}`, fontSize: isMobile ? 9 : 11}}>
                           {statusLabel(pct)} // {pct}%
                         </div>
-                        {recent && <div style={s.recentLog}>LAST TX: {recent.timestamp}</div>}
+                        {recent && !isMobile && <div style={s.recentLog}>LAST TX: {recent.timestamp}</div>}
                       </div>
                     );
                   })}
                 </div>
               </div>
 
-              <div style={{...s.fullRow, ...s.sectionCard}}>
-                <div style={s.sectionTitle}>📋 RECENT TRANSACTIONS</div>
-                <LogTable log={log.slice(0, 5)} compact />
+              <div style={{...s.fullRow, ...s.sectionCard, padding: isMobile ? 14 : 24}}>
+                <div style={{...s.sectionTitle, fontSize: isMobile ? 13 : 16}}>📋 RECENT TRANSACTIONS</div>
+                <LogTable log={log.slice(0, 5)} compact isMobile={isMobile} />
               </div>
             </div>
           )}
 
           {activeTab === "batteries" && (
-            <div style={s.dashGrid}>
+            <div style={{
+              ...s.dashGrid,
+              gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: isMobile ? 12 : 20,
+            }}>
               {BATTERIES.map(b => (
-                <div key={b.id} style={{...s.btyDetailCard, borderColor: b.color}}>
+                <div key={b.id} style={{...s.btyDetailCard, borderColor: b.color, padding: isMobile ? 14 : 24}}>
                   <div style={{...s.btyDetailHeader, borderBottomColor: b.color}}>
-                    <span style={{...s.btyCallsign, color: b.color, fontSize:18}}>{b.callsign}</span>
+                    <span style={{...s.btyCallsign, color: b.color, fontSize: isMobile ? 15 : 18}}>{b.callsign}</span>
                     <span style={s.btyName}>{b.name}</span>
                   </div>
                   {AMMO_TYPES.map(a => {
                     const qty = stock[b.id]?.[a.id] || 0;
                     const pct = Math.round((qty / maxPerBty) * 100);
                     return (
-                      <div key={a.id} style={s.ammoRow}>
-                        <span style={s.ammoRowIcon}>{a.icon}</span>
-                        <span style={s.ammoRowLabel}>{a.id}</span>
-                        <div style={{...s.inlineBar}}></div>
-                        <span style={{fontSize:12, color: a.color, fontWeight:"bold"}}>{qty}</span>
+                      <div key={a.id} style={{...s.ammoRow, fontSize: isMobile ? 12 : 13}}>
+                        <span style={{...s.ammoRowIcon, fontSize: isMobile ? 15 : 18}}>{a.icon}</span>
+                        <span style={{...s.ammoRowLabel, width: isMobile ? 48 : 60}}>{a.id}</span>
+                        <div style={{...s.inlineBar, margin: isMobile ? "0 8px" : "0 12px"}}>
+                          <div style={{height:"100%", width:`${pct}%`, background: a.color, borderRadius:2, transition:"width 0.3s"}} />
+                        </div>
+                        <span style={{fontSize: isMobile ? 11 : 12, color: a.color, fontWeight:"bold"}}>{qty}</span>
                       </div>
                     );
                   })}
@@ -436,22 +492,22 @@ function BNDashboard({ stock, log, bnTotals, maxPerBty, activeTab, setActiveTab,
           )}
 
           {activeTab === "transactions" && (
-            <div style={{...s.sectionCard, ...s.fullRow}}>
-              <div style={s.sectionTitle}>📋 COMPLETE TRANSACTION LOG</div>
-              <LogTable log={log} />
+            <div style={{...s.sectionCard, ...s.fullRow, padding: isMobile ? 14 : 24}}>
+              <div style={{...s.sectionTitle, fontSize: isMobile ? 13 : 16}}>📋 COMPLETE TRANSACTION LOG</div>
+              <LogTable log={log} isMobile={isMobile} />
             </div>
           )}
 
           {activeTab === "analytics" && (
-            <div style={{...s.sectionCard, ...s.fullRow}}>
-              <div style={s.sectionTitle}>📊 AMMUNITION DISTRIBUTION</div>
-              <ResponsiveContainer width="100%" height={300}>
+            <div style={{...s.sectionCard, ...s.fullRow, padding: isMobile ? 14 : 24}}>
+              <div style={{...s.sectionTitle, fontSize: isMobile ? 13 : 16}}>📊 AMMUNITION DISTRIBUTION</div>
+              <ResponsiveContainer width="100%" height={isMobile ? 220 : 300}>
                 <BarChart data={barData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="name" stroke="#94a3b8" />
-                  <YAxis stroke="#94a3b8" />
-                  <Tooltip contentStyle={{background:"#1e293b", border:"1px solid #334155"}} />
-                  <Legend />
+                  <XAxis dataKey="name" stroke="#94a3b8" tick={{fontSize: isMobile ? 10 : 12}} />
+                  <YAxis stroke="#94a3b8" tick={{fontSize: isMobile ? 10 : 12}} width={isMobile ? 30 : 40} />
+                  <Tooltip contentStyle={{background:"#1e293b", border:"1px solid #334155", fontSize: isMobile ? 11 : 13}} />
+                  {!isMobile && <Legend />}
                   {BATTERIES.map(b => (
                     <Bar key={b.id} dataKey={b.name.split(" ")[1]} fill={b.color} />
                   ))}
@@ -467,65 +523,73 @@ function BNDashboard({ stock, log, bnTotals, maxPerBty, activeTab, setActiveTab,
 
 // ─── BATTERY COMMANDER ─────────────────────────────────────────────────────────
 function BtyCommander({ battery, batteries, selectedBattery, setSelectedBattery, stock, log, txAmmoId, setTxAmmoId, txQty, setTxQty, txNote, setTxNote, txType, setTxType, onSubmit, flash, maxPerBty, onLogout }) {
+  const isMobile = useIsMobile();
   return (
     <div style={s.screen}>
       <div style={s.btyWrap}>
-        <div style={s.btyHeader}>
-          <div style={s.btyLeft}>
-            <div style={s.btyIcon}>⚡</div>
+        <div style={{
+          ...s.btyHeader,
+          padding: isMobile ? "12px 16px" : "20px 32px",
+        }}>
+          <div style={{...s.btyLeft, gap: isMobile ? 10 : 16}}>
+            <div style={{...s.btyIcon, fontSize: isMobile ? 22 : 28}}>⚡</div>
             <div>
-              <div style={s.btyName2}>{battery.name.toUpperCase()}</div>
-              <div style={s.btySub}>{battery.callsign} // AMMUNITION MANAGEMENT</div>
+              <div style={{...s.btyName2, fontSize: isMobile ? 15 : 20}}>{battery.name.toUpperCase()}</div>
+              {!isMobile && <div style={s.btySub}>{battery.callsign} // AMMUNITION MANAGEMENT</div>}
             </div>
           </div>
-          <div style={s.btyRight}>
-            <select style={s.btySwitch} value={selectedBattery} onChange={(e) => setSelectedBattery(e.target.value)}>
+          <div style={{...s.btyRight, gap: isMobile ? 8 : 12}}>
+            <select style={{...s.btySwitch, padding: isMobile ? "5px 8px" : "6px 12px", fontSize: isMobile ? 10 : 11}} value={selectedBattery} onChange={(e) => setSelectedBattery(e.target.value)}>
               {batteries.map(b => <option key={b.id} value={b.id}>{b.callsign}</option>)}
             </select>
-            <button style={s.logoutBtn} onClick={onLogout}>LOGOUT</button>
+            <button style={{...s.logoutBtn, padding: isMobile ? "5px 10px" : "8px 16px", fontSize: isMobile ? 10 : 12}} onClick={onLogout}>LOGOUT</button>
           </div>
         </div>
 
-        <div style={s.btyBody}>
-          <div style={s.btyLeftpanel}>
-            <div style={{...s.txCard, borderColor: battery.color, borderWidth: 2}}>
-              <div style={{fontSize:14, fontWeight:"bold", marginBottom:16}}>📝 LOG TRANSACTION</div>
+        <div style={{
+          ...s.btyBody,
+          gridTemplateColumns: isMobile ? "1fr" : "1fr 1.2fr",
+          overflow: isMobile ? "auto" : "hidden",
+          padding: isMobile ? 12 : 20,
+          gap: isMobile ? 12 : 20,
+        }}>
+          <div style={{...s.btyLeftpanel, paddingRight: isMobile ? 0 : 12, overflow: isMobile ? "visible" : "auto"}}>
+            <div style={{...s.txCard, borderColor: battery.color, borderWidth: 2, padding: isMobile ? 16 : 20}}>
+              <div style={{fontSize: isMobile ? 13 : 14, fontWeight:"bold", marginBottom:16}}>📝 LOG TRANSACTION</div>
               <div style={s.txField}>
                 <label style={s.txLabel}>AMMUNITION TYPE</label>
-                <select style={s.txSelect} value={txAmmoId} onChange={(e) => setTxAmmoId(e.target.value)}>
+                <select style={{...s.txSelect, fontSize: isMobile ? 12 : 13}} value={txAmmoId} onChange={(e) => setTxAmmoId(e.target.value)}>
                   {AMMO_TYPES.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
                 </select>
               </div>
               <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16}}>
                 <div style={s.txField}>
                   <label style={s.txLabel}>TYPE</label>
-                  <select style={s.txSelect} value={txType} onChange={(e) => setTxType(e.target.value)}>
+                  <select style={{...s.txSelect, fontSize: isMobile ? 12 : 13}} value={txType} onChange={(e) => setTxType(e.target.value)}>
                     <option value="ADD">➕ ADD</option>
                     <option value="SUB">➖ EXPEND</option>
                   </select>
                 </div>
                 <div style={s.txField}>
                   <label style={s.txLabel}>QUANTITY</label>
-                  <input style={s.txInput} type="number" value={txQty} onChange={(e) => setTxQty(e.target.value)} placeholder="0" />
+                  <input style={{...s.txInput, fontSize: isMobile ? 12 : 13}} type="number" value={txQty} onChange={(e) => setTxQty(e.target.value)} placeholder="0" />
                 </div>
               </div>
               <div style={s.txField}>
                 <label style={s.txLabel}>NOTE (OPTIONAL)</label>
-                <input style={s.txInput} type="text" value={txNote} onChange={(e) => setTxNote(e.target.value)} placeholder="Resupply from HQ..." />
+                <input style={{...s.txInput, fontSize: isMobile ? 12 : 13}} type="text" value={txNote} onChange={(e) => setTxNote(e.target.value)} placeholder="Resupply from HQ..." />
               </div>
-              <button style={s.txButton} onClick={onSubmit}>SUBMIT TRANSACTION</button>
+              <button style={{...s.txButton, padding: isMobile ? 14 : 12, fontSize: isMobile ? 14 : 13}} onClick={onSubmit}>SUBMIT TRANSACTION</button>
             </div>
 
-            {flash && <div style={{...s.flashBar, background: flash.kind === "success" ? "#4ade80" : "#ef4444"}}>{flash.msg}</div>}
-
-            <div style={{...s.txCard, marginTop:16}}>
-              <div style={{fontSize:14, fontWeight:"bold", marginBottom:12}}>📊 CURRENT STOCK</div>
+            <div style={{...s.txCard, marginTop: isMobile ? 0 : 16, padding: isMobile ? 16 : 20}}>
+              <div style={{fontSize: isMobile ? 13 : 14, fontWeight:"bold", marginBottom:12}}>📊 CURRENT STOCK</div>
               {AMMO_TYPES.map(a => {
                 const qty = stock[a.id] || 0;
                 const pct = Math.round((qty / maxPerBty) * 100);
                 return (
                   <div key={a.id} style={{marginBottom:12}}>
-                    <div style={{display:"flex", justifyContent:"space-between", marginBottom:4, fontSize:12}}>
+                    <div style={{display:"flex", justifyContent:"space-between", marginBottom:4, fontSize: isMobile ? 11 : 12}}>
                       <span>{a.icon} {a.label}</span>
                       <span style={{color: a.color, fontWeight:"bold"}}>{qty}</span>
                     </div>
@@ -538,30 +602,32 @@ function BtyCommander({ battery, batteries, selectedBattery, setSelectedBattery,
             </div>
           </div>
 
-          <div style={{display:"flex", flexDirection:"column", overflow:"auto", paddingRight:12}}>
-            <div style={{...s.sectionCard}}>
-              <div style={s.sectionTitle}>📋 BATTERY TRANSACTION LOG</div>
-              <LogTable log={log} />
+          <div style={{display:"flex", flexDirection:"column", overflow: isMobile ? "visible" : "auto", paddingRight: isMobile ? 0 : 12}}>
+            <div style={{...s.sectionCard, padding: isMobile ? 16 : 24}}>
+              <div style={{...s.sectionTitle, fontSize: isMobile ? 13 : 16}}>📋 BATTERY TRANSACTION LOG</div>
+              <LogTable log={log} isMobile={isMobile} />
             </div>
           </div>
         </div>
       </div>
+
+      {flash && <div style={{...s.flashBar, background: flash.kind === "success" ? "#4ade80" : "#ef4444", bottom: isMobile ? 16 : 20, right: isMobile ? 12 : 20, left: isMobile ? 12 : "auto", textAlign: isMobile ? "center" : "left", fontSize: isMobile ? 12 : 13}}>{flash.msg}</div>}
     </div>
   );
 }
 
 // ─── LOG TABLE ─────────────────────────────────────────────────────────────────
-function LogTable({ log, compact }) {
+function LogTable({ log, compact, isMobile }) {
   return (
     <div>
-      <div style={{...s.logRow, ...s.logHeader}}>
+      <div style={{...s.logRow, ...s.logHeader, fontSize: isMobile ? 10 : 11}}>
         <span>TIME</span>
         <span>AMMO</span>
         <span>TX</span>
         <span>QTY</span>
       </div>
       {(log || []).map((entry) => (
-        <div key={entry._id || entry.id} style={s.logRow}>
+        <div key={entry._id || entry.id} style={{...s.logRow, fontSize: isMobile ? 11 : 12}}>
           <span style={{color:"#94a3b8"}}>{entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('en-GB', {hour12: false}) : entry.time}</span>
           <span style={{color:"#cbd5e1"}}>{entry.ammoId}</span>
           <span style={{color: entry.type === "ADD" ? "#4ade80" : "#ef4444"}}>{entry.type}</span>

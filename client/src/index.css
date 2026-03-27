@@ -27,10 +27,35 @@ html, body, #root {
 
 button {
   font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 
 input, select {
   font-family: inherit;
+}
+
+/* Mobile: hide tab scrollbar but allow scrolling */
+@media (max-width: 767px) {
+  .tabs-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Prevent zoom on input focus (iOS) */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+
+  /* Flash bar slide from bottom on mobile */
+  @keyframes slideIn {
+    from {
+      transform: translateY(60px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
 }
 
 /* Scrollbar styling */
